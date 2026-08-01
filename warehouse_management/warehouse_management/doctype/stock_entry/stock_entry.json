@@ -8,10 +8,13 @@
  "field_order": [
   "section_break_dbyl",
   "amended_from",
-  "posting_date",
   "posting_time",
   "purpose",
-  "items"
+  "column_break_ckjv",
+  "posting_date",
+  "section_break_qpzt",
+  "items",
+  "total_value"
  ],
  "fields": [
   {
@@ -54,15 +57,29 @@
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
-   "options": "Stock Entry Item",
+   "options": "Stock Ledger Entry",
    "reqd": 1
+  },
+  {
+   "fieldname": "total_value",
+   "fieldtype": "Currency",
+   "label": "Total Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ckjv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_qpzt",
+   "fieldtype": "Section Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-01 04:10:26.786907",
+ "modified": "2026-08-01 04:21:32.161690",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
