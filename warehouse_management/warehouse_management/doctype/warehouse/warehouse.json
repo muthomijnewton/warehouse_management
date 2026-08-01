@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:warehouse_name",
+ "creation": "2026-08-01 03:37:46.756191",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_vs5j",
+  "lft",
+  "rgt",
+  "old_parent",
+  "parent_warehouse",
+  "warehouse_name",
+  "warehouse_code",
+  "warehouse_type",
+  "is_group",
+  "disabled"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_vs5j",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "lft",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Left",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "rgt",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Right",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Group",
+   "reqd": 1
+  },
+  {
+   "fieldname": "old_parent",
+   "fieldtype": "Link",
+   "label": "Old Parent",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "parent_warehouse",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Parent Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "warehouse_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Warehouse Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "warehouse_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Warehouse Type",
+   "options": "Distribution Centre\nRetail Shop\nStorage Room\nShelf\nTransit"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled"
+  },
+  {
+   "fieldname": "warehouse_code",
+   "fieldtype": "Data",
+   "label": "Warehouse Code",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_tree": 1,
+ "links": [],
+ "modified": "2026-08-01 03:53:41.331964",
+ "modified_by": "Administrator",
+ "module": "Warehouse Management",
+ "name": "Warehouse",
+ "naming_rule": "By fieldname",
+ "nsm_parent_field": "parent_warehouse",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
