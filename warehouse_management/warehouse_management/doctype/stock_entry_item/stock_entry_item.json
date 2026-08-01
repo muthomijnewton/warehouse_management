@@ -61,7 +61,7 @@
  "modified": "2026-08-01 04:13:01.068377",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
- "name": "Stock Ledger Entry",
+ "name": "Stock Entry Item",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",

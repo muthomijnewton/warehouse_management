@@ -57,7 +57,7 @@
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
-   "options": "Stock Ledger Entry",
+   "options": "Stock Entry Item",
    "reqd": 1
   },
   {
@@ -79,7 +79,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-01 04:21:32.161690",
+ "modified": "2026-08-01 04:26:54.957021",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
