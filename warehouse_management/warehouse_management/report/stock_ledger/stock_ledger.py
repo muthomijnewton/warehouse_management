@@ -5,13 +5,69 @@ import frappe
 
 
 def execute(filters=None):
+	filters = filters or {}
+
 	columns = get_columns()
-	data = get_data(filters)
+
+	opening_qty, opening_value = get_opening_balance(filters)
+	ledger_data = get_data(filters)
+
+	data = [{
+		"description": "Opening Balance",
+		"posting_date": None,
+		"posting_time": None,
+		"item": filters.get("item"),
+		"warehouse": filters.get("warehouse"),
+		"stock_entry": None,
+		"actual_quantity": None,
+		"valuation_rate": None,
+		"stock_value": None,
+		"qty_after_transaction": opening_qty,
+		"stock_value_after_transaction": opening_value,
+	}]
+
+	data.extend(ledger_data)
+
+	closing_qty = opening_qty + sum(
+		row.actual_quantity or 0 
+		for row in ledger_data
+	)
+
+	closing_value = opening_value + sum(
+		row.stock_value or 0
+		for row in ledger_data
+	)
+
+	closing_rate = (
+		closing_value / closing_qty
+		if closing_qty > 0
+		else 0
+	)
+
+	data.append({
+		"description": "Closing Balance",
+		"posting_date": None,
+		"posting_time": None,
+		"item": filters.get("item"),
+		"warehouse": filters.get("warehouse"),
+		"stock_entry": None,
+		"actual_quantity": None,
+		"valuation_rate": closing_rate,
+		"stock_value": None,
+		"qty_after_transaction": closing_qty,
+		"stock_value_after_transaction": closing_value,
+	})
 
 	return columns, data
 
 def get_columns():
 	return[
+		{
+			"label": "Description",
+			"fieldname": "description",
+			"fieldtype": "Data",
+			"width": 180,
+		},
 		{
 			"label": "Posting Date",
 			"fieldname": "posting_date",
@@ -76,6 +132,38 @@ def get_columns():
 			"width": 180,
 		},
 	]
+def get_opening_balance(filters):
+	conditions = [
+		"posting_date < %(from_date)s"
+	]
+
+	values = {
+		"from_date": filters.get("from_date")
+	}
+
+	if filters.get("item"):
+		conditions.append("item = %(item)s")
+		values["item"] = filters["item"]
+
+	if filters.get("warehouse"):
+		conditions.append("warehouse = %(warehouse)s")
+		values["warehouse"] = filters["warehouse"]
+
+	where_clause = " AND ".join(conditions)
+
+	result = frappe.db.sql(
+		f"""
+		SELECT
+			COALESCE(SUM(actual_quantity), 0) AS quantity,
+			COALESCE(SUM(stock_value), 0) AS value
+		FROM `tabStock Ledger Entry`
+		WHERE {where_clause}
+		""",
+		values,
+		as_dict=True,
+	)
+
+	return result[0].quantity, result[0].value
 
 def get_data(filters):
 	conditions = []
