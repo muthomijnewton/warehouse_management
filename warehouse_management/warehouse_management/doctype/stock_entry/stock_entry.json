@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "STE-.YYYY.-.###",
+ "autoname": "naming_series:naming_series",
  "creation": "2026-08-01 03:58:53.770191",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -14,7 +14,8 @@
   "posting_date",
   "section_break_qpzt",
   "items",
-  "total_value"
+  "total_value",
+  "naming_series"
  ],
  "fields": [
   {
@@ -73,17 +74,25 @@
   {
    "fieldname": "section_break_qpzt",
    "fieldtype": "Section Break"
+  },
+  {
+   "default": "STE.-.YYYY.-.###",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "STE.-.YYYY.-.###"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-01 04:26:54.957021",
+ "modified": "2026-08-01 07:45:00.949641",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
- "naming_rule": "Expression",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {

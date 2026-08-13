@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:stock_entry",
+ "autoname": "naming_series:naming_series",
  "creation": "2026-08-01 04:29:43.009956",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -15,7 +15,9 @@
   "actual_quantity",
   "valuation_rate",
   "stock_value",
-  "qty_after_transaction"
+  "qty_after_transaction",
+  "stock_value_after_transaction",
+  "naming_series"
  ],
  "fields": [
   {
@@ -77,18 +79,30 @@
    "fieldname": "stock_entry",
    "fieldtype": "Link",
    "label": "Stock Entry",
-   "options": "Stock Entry",
-   "unique": 1
+   "options": "Stock Entry"
+  },
+  {
+   "default": "SLE.-.YYYY.-.###",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "SLE.-.YYYY.-.###"
+  },
+  {
+   "fieldname": "stock_value_after_transaction",
+   "fieldtype": "Data",
+   "label": "Stock Value After Transaction"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-01 06:21:21.020125",
+ "modified": "2026-08-02 03:12:16.360098",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Ledger Entry",
- "naming_rule": "Expression",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
