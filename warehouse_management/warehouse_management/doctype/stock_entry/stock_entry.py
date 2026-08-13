@@ -135,26 +135,31 @@ class StockEntry(Document):
 
 	def handle_transfer(self):
 		for row in self.items:
-			source, target = self.calculate_transfer_valuation(row)
+			source_valuation, target_valuation = self.calculate_transfer_valuation(row)
 
 			self.create_ledger_entry(
 				item=row.item,
 				warehouse=row.source_warehouse,
 				qty=-row.quantity,
-				valuation_rate=source["valuation_rate"],
-				movement_value=source["movement_value"],
-				qty_after_transaction=source["qty_after_transaction"],
-				stock_value_after_transaction=source["stock_value_after_transaction"],
+				valuation_rate=source_valuation["valuation_rate"],
+				movement_value=source_valuation["movement_value"],
+				qty_after_transaction=source_valuation["qty_after_transaction"],
+				stock_value_after_transaction=source_valuation["stock_value_after_transaction"],
 			)
+
+			# target_valuation = self.calculate_transfer_receipt_valuation(
+			# 	row,
+			# 	source_valuation["valuation_rate"]
+			# )
 
 			self.create_ledger_entry(
 				item=row.item,
 				warehouse=row.target_warehouse,
 				qty=row.quantity,
-				valuation_rate=target["valuation_rate"],
-				movement_value=target["movement_value"],
-				qty_after_transaction=target["qty_after_transaction"],
-				stock_value_after_transaction=target["stock_value_after_transaction"],
+				valuation_rate=source_valuation["valuation_rate"],
+				movement_value=target_valuation["movement_value"],
+				qty_after_transaction=target_valuation["qty_after_transaction"],
+				stock_value_after_transaction=target_valuation["stock_value_after_transaction"],
 			)
 
 	def create_ledger_entry(
@@ -260,6 +265,23 @@ class StockEntry(Document):
 			"stock_value_after_transaction": new_value,
 		}
 
+	def calculate_transfer_receipt_valuation(self, row, valuation_rate):
+		current_qty, current_value = self.get_stock_balance(
+			row.item,
+			row.target_warehouse,
+		)
+
+		movevement_value = row.quantity*valuation_rate
+
+		new_qty = current_qty + row.quantity
+		new_value = current_value + movevement_value
+
+		return {
+			"qty_after_transaction": new_qty,
+			"stock_value_after_transaction": new_value,
+			"movement_value": movevement_value,
+		}
+
 	def calculate_transfer_valuation(self, row):
 		source = self.calculate_consume_valuation(row)
 
@@ -287,3 +309,126 @@ class StockEntry(Document):
 
 		return source, target
 
+	def on_cancel(self):
+		if self.purpose == 'Receipt':
+			self.cancel_receipt()
+
+		if self.purpose == 'Consume':
+			self.cancel_consume()
+
+		if self.purpose == 'Transfer':
+			self.cancel_transfer()
+
+	def cancel_receipt(self):
+		for row in self.items:
+			current_qty, current_value = self.get_stock_balance(
+				row.item,
+				row.target_warehouse,
+			)
+
+			valuation_rate = self.get_valuation_rate(
+				row.item,
+				row.target_warehouse,
+			)
+
+			new_qty = current_qty - row.quantity
+			reversal_value = -(row.quantity*valuation_rate)
+			new_value = current_value + reversal_value
+
+			if new_qty < 0:
+				frappe.throw(
+					f"Cannot cancel receipt for item {row.item} in warehouse {row.target_warehouse}. "
+					"Not enough stock."
+				)
+
+			self.create_ledger_entry(
+				item=row.item,
+				warehouse=row.target_warehouse,
+				qty=-row.quantity,
+				valuation_rate=valuation_rate,
+				movement_value=reversal_value,
+				qty_after_transaction=new_qty,
+				stock_value_after_transaction=new_value,
+			)
+
+	def cancel_consume(self):
+		for row in self.items:
+			current_qty, current_value = self.get_stock_balance(
+				row.item,
+				row.source_warehouse,
+			)
+
+			valuation_rate = self.get_valuation_rate(
+				row.item,
+				row.source_warehouse,
+			)
+
+			new_qty = current_qty + row.quantity
+			reversal_value = row.quantity*valuation_rate
+			new_value = current_value + reversal_value
+
+			self.create_ledger_entry(
+				item=row.item,
+				warehouse=row.source_warehouse,
+				qty=row.quantity,
+				valuation_rate=valuation_rate,
+				movement_value=reversal_value,
+				qty_after_transaction=new_qty,
+				stock_value_after_transaction=new_value,
+			)
+
+	def cancel_transfer(self):
+		for row in self.items:
+			source_qty, source_value = self.get_stock_balance(
+				row.item,
+				row.source_warehouse,
+			)
+
+			source_valuation_rate = self.get_valuation_rate(
+				row.item,
+				row.source_warehouse,
+			)
+
+			new_source_qty = source_qty + row.quantity
+			reversal_source_value = row.quantity*source_valuation_rate
+			new_source_value = source_value + reversal_source_value
+
+			self.create_ledger_entry(
+				item=row.item,
+				warehouse=row.source_warehouse,
+				qty=row.quantity,
+				valuation_rate=source_valuation_rate,
+				movement_value=reversal_source_value,
+				qty_after_transaction=new_source_qty,
+				stock_value_after_transaction=new_source_value,
+			)
+
+			target_qty, target_value = self.get_stock_balance(
+				row.item,
+				row.target_warehouse,
+			)
+
+			target_valuation_rate = self.get_valuation_rate(
+				row.item,
+				row.target_warehouse,
+			)
+
+			new_target_qty = target_qty - row.quantity
+			target_movement_value = -(row.quantity*target_valuation_rate)
+			new_target_value = target_value + target_movement_value
+
+			if new_target_qty < 0:
+				frappe.throw(
+					f"Cannot cancel transfer for item {row.item} in warehouse {row.target_warehouse}. "
+					"Not enough stock."
+				)
+
+			self.create_ledger_entry(
+				item=row.item,
+				warehouse=row.target_warehouse,
+				qty=-row.quantity,
+				valuation_rate=target_valuation_rate,
+				movement_value=target_movement_value,
+				qty_after_transaction=new_target_qty,
+				stock_value_after_transaction=new_target_value,
+			)
