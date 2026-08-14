@@ -1,3 +1,8 @@
+<img width="952" height="451" alt="Stock Ledger Report" src="https://github.com/user-attachments/assets/f447743a-b771-4c1e-91d0-890c63e59761" />
+<img width="957" height="447" alt="Stock Ledger Entry Doctype" src="https://github.com/user-attachments/assets/4aa83af2-3df1-43a4-8ebe-38ccc1db3d13" />
+<img width="953" height="474" alt="Stock Entry Doctype" src="https://github.com/user-attachments/assets/9ee3dd26-1943-4f63-907a-a822a13bc756" />
+<img width="956" height="439" alt="Stock Balance Report" src="https://github.com/user-attachments/assets/38ad8166-4b6b-48e2-adcb-e944ef780f17" />
+<img width="959" height="435" alt="Warehouse Management Doctype List" src="https://github.com/user-attachments/assets/36e35bc7-3d8d-4879-9ca0-df36d0cb7a72" />
 ### Warehouse Management
 
 A warehouse stock management application.
