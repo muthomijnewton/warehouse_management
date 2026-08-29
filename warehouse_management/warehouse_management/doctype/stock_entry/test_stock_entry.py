@@ -21,8 +21,6 @@ class TestStockEntry(FrappeTestCase):
 			"TEST-SHELF-B",
 		)
 
-		# Clear previous test ledger entries so every test
-		# starts with zero stock.
 		frappe.db.delete(
 			"Stock Ledger Entry",
 			{
@@ -336,3 +334,242 @@ class TestStockEntry(FrappeTestCase):
 
 		self.assertEqual(qty, 16)
 		self.assertEqual(value, 400_000)
+
+	def test_fifo_valuation(self):
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		first_receipt.valuation_method = "FIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		second_receipt.valuation_method = "FIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()	
+
+		consume = self.create_stock_entry(
+			purpose="Consume",
+			quantity=4,
+			source_warehouse=self.shelf_a,
+		)	
+
+		consume.valuation_method = "FIFO"
+		consume.insert(ignore_permissions=True)
+		consume.submit()
+
+		qty, value = self.get_balance(self.shelf_a)
+
+		self.assertEqual(qty, 16)
+		self.assertEqual(value, 420_000)
+
+	def test_fifo_transfer(self):
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		first_receipt.valuation_method = "FIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		second_receipt.valuation_method = "FIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		transfer = self.create_stock_entry(
+			purpose="Transfer",
+			quantity=12,
+			source_warehouse=self.shelf_a,
+			target_warehouse=self.shelf_b,
+		)
+
+		transfer.valuation_method = "FIFO"
+		transfer.insert(ignore_permissions=True)
+		transfer.submit()
+
+		source_qty, source_value = self.get_balance(
+			self.shelf_a
+		)
+
+		target_qty, target_value = self.get_balance(
+			self.shelf_b
+		)
+
+		self.assertEqual(source_qty, 8)
+		self.assertEqual(source_value, 240000)
+
+		self.assertEqual(target_qty, 12)
+		self.assertEqual(target_value, 260000)
+
+	def test_fifo_transfer_to_stocked_warehouse(self):
+		# Create the first FIFO layer in Shelf A.
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		first_receipt.valuation_method = "FIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		# Create the second FIFO layer in Shelf A.
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		second_receipt.valuation_method = "FIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		# Put existing stock in Shelf B at a different rate.
+		target_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=5,
+			target_warehouse=self.shelf_b,
+			rate=10000,
+		)
+
+		target_receipt.valuation_method = "FIFO"
+		target_receipt.insert(ignore_permissions=True)
+		target_receipt.submit()
+
+		# Transfer 12 units from Shelf A to Shelf B.
+		transfer = self.create_stock_entry(
+			purpose="Transfer",
+			quantity=12,
+			source_warehouse=self.shelf_a,
+			target_warehouse=self.shelf_b,
+		)
+
+		transfer.valuation_method = "FIFO"
+		transfer.insert(ignore_permissions=True)
+		transfer.submit()
+
+		source_qty, source_value = self.get_balance(
+			self.shelf_a
+		)
+
+		target_qty, target_value = self.get_balance(
+			self.shelf_b
+		)
+
+		# Shelf A should have 8 units from the 30,000 layer.
+		self.assertEqual(source_qty, 8)
+		self.assertEqual(source_value, 240000)
+
+		# Shelf B should have its original 5 units plus 12 transferred units.
+		self.assertEqual(target_qty, 17)
+
+		# Original stock: 5 × 10,000 = 50,000
+		# Transferred stock:
+		# 10 × 20,000 = 200,000
+		#  2 × 30,000 =  60,000
+		# Total = 310,000
+		self.assertEqual(target_value, 310000)
+
+	def test_fifo_transfer_preserves_fifo_for_target_consumption(self):
+		# Shelf A: first FIFO layer
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		first_receipt.valuation_method = "FIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		# Shelf A: second FIFO layer
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		second_receipt.valuation_method = "FIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		# Shelf B already has an older FIFO layer.
+		target_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=5,
+			target_warehouse=self.shelf_b,
+			rate=10000,
+		)
+
+		target_receipt.valuation_method = "FIFO"
+		target_receipt.insert(ignore_permissions=True)
+		target_receipt.submit()
+
+		# Transfer 12 units from Shelf A to Shelf B.
+		transfer = self.create_stock_entry(
+			purpose="Transfer",
+			quantity=12,
+			source_warehouse=self.shelf_a,
+			target_warehouse=self.shelf_b,
+		)
+
+		transfer.valuation_method = "FIFO"
+		transfer.insert(ignore_permissions=True)
+		transfer.submit()
+
+		# Shelf B now contains:
+		#
+		# 5 × 10,000
+		# 10 × 20,000
+		# 2 × 30,000
+		#
+		# Consume 7 units using FIFO.
+		consume = self.create_stock_entry(
+			purpose="Consume",
+			quantity=7,
+			source_warehouse=self.shelf_b,
+		)
+
+		consume.valuation_method = "FIFO"
+		consume.insert(ignore_permissions=True)
+		consume.submit()
+
+		qty, value = self.get_balance(self.shelf_b)
+
+		# FIFO consumption:
+		#
+		# 5 × 10,000 = 50,000
+		# 2 × 20,000 = 40,000
+		# Total issued = 90,000
+		#
+		# Before consumption:
+		# 17 units = 310,000
+		#
+		# After consumption:
+		# 10 units = 220,000
+		self.assertEqual(qty, 10)
+		self.assertEqual(value, 220000)

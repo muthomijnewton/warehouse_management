@@ -13,8 +13,8 @@
   "column_break_ckjv",
   "posting_time",
   "section_break_qpzt",
+  "valuation_method",
   "items",
-  "total_value",
   "naming_series"
  ],
  "fields": [
@@ -62,12 +62,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "total_value",
-   "fieldtype": "Currency",
-   "label": "Total Value",
-   "read_only": 1
-  },
-  {
    "fieldname": "column_break_ckjv",
    "fieldtype": "Column Break"
   },
@@ -82,13 +76,20 @@
    "hidden": 1,
    "label": "Naming Series",
    "options": "STE.-.YYYY.-.###"
+  },
+  {
+   "default": "Moving Average",
+   "fieldname": "valuation_method",
+   "fieldtype": "Select",
+   "label": "Valuation Method",
+   "options": "Moving Average\nFIFO\nLIFO"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-27 08:04:17.041540",
+ "modified": "2026-08-29 04:30:05.078065",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
