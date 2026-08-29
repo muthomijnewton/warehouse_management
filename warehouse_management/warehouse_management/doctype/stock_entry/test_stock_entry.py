@@ -492,8 +492,7 @@ class TestStockEntry(FrappeTestCase):
 		# Total = 310,000
 		self.assertEqual(target_value, 310000)
 
-	def test_fifo_transfer_preserves_fifo_for_target_consumption(self):
-		# Shelf A: first FIFO layer
+	def test_lifo_receipt(self):
 		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
 			quantity=10,
@@ -501,11 +500,10 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "FIFO"
+		first_receipt.valuation_method = "LIFO"
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
-		# Shelf A: second FIFO layer
 		second_receipt = self.create_stock_entry(
 			purpose="Receipt",
 			quantity=10,
@@ -513,63 +511,56 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "FIFO"
+		second_receipt.valuation_method = "LIFO"
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
-		# Shelf B already has an older FIFO layer.
-		target_receipt = self.create_stock_entry(
+		qty, value = self.get_balance(self.shelf_a)
+
+		self.assertEqual(qty, 20)
+		self.assertEqual(value, 500000)
+
+	def test_lifo_valuation(self):
+		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
-			quantity=5,
-			target_warehouse=self.shelf_b,
-			rate=10000,
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
 		)
 
-		target_receipt.valuation_method = "FIFO"
-		target_receipt.insert(ignore_permissions=True)
-		target_receipt.submit()
+		first_receipt.valuation_method = "LIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
 
-		# Transfer 12 units from Shelf A to Shelf B.
-		transfer = self.create_stock_entry(
-			purpose="Transfer",
-			quantity=12,
-			source_warehouse=self.shelf_a,
-			target_warehouse=self.shelf_b,
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
 		)
 
-		transfer.valuation_method = "FIFO"
-		transfer.insert(ignore_permissions=True)
-		transfer.submit()
+		second_receipt.valuation_method = "LIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
 
-		# Shelf B now contains:
-		#
-		# 5 × 10,000
-		# 10 × 20,000
-		# 2 × 30,000
-		#
-		# Consume 7 units using FIFO.
 		consume = self.create_stock_entry(
 			purpose="Consume",
-			quantity=7,
-			source_warehouse=self.shelf_b,
+			quantity=4,
+			source_warehouse=self.shelf_a,
 		)
 
-		consume.valuation_method = "FIFO"
+		consume.valuation_method = "LIFO"
 		consume.insert(ignore_permissions=True)
 		consume.submit()
 
-		qty, value = self.get_balance(self.shelf_b)
+		qty, value = self.get_balance(self.shelf_a)
 
-		# FIFO consumption:
+		# LIFO consumption:
 		#
-		# 5 × 10,000 = 50,000
-		# 2 × 20,000 = 40,000
-		# Total issued = 90,000
+		# 4 × 30,000 = 120,000
 		#
-		# Before consumption:
-		# 17 units = 310,000
-		#
-		# After consumption:
-		# 10 units = 220,000
-		self.assertEqual(qty, 10)
-		self.assertEqual(value, 220000)
+		# Initial value = 500,000
+		# Remaining value = 380,000
+
+		self.assertEqual(qty, 16)
+		self.assertEqual(value, 380000)

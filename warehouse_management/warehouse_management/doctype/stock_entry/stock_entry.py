@@ -122,11 +122,22 @@ class StockEntry(Document):
 	def handle_consume(self):
 		for row in self.items:
 
+			print(
+				f"\nCONSUME VALUATION METHOD:"
+				f"{self.valuation_method}"
+			)
+			
 			if self.valuation_method == "Moving Average":
+				print(">>> Using Moving Average")
 				valuation = self.calculate_consume_valuation(row)
 
 			elif self.valuation_method == "FIFO":
+				print(">>> Using FIFO")
 				valuation = self.calculate_consume_fifo_valuation(row)
+
+			elif self.valuation_method == "LIFO":
+				print(">>> Using LIFO")
+				valuation = self.calculate_consume_lifo_valuation(row)
 
 			else:
 				frappe.throw(
@@ -198,51 +209,107 @@ class StockEntry(Document):
 	def handle_transfer(self):
 		for row in self.items:
 
+			print(
+				f"\nTRANSFER VALUATION METHOD:"
+				f"{self.valuation_method}"
+			)
+
 			if self.valuation_method == "Moving Average":
 				source_valuation, target_valuation = (
 					self.calculate_transfer_valuation(row)
 				)
 
-			elif self.valuation_method == "FIFO":
-				source_valuation, target_valuation = (
-					self.calculate_transfer_fifo_valuation(row)
+				# Remove stock from source warehouse
+				self.create_ledger_entry(
+					item=row.item,
+					warehouse=row.source_warehouse,
+					qty=-row.quantity,
+					valuation_rate=source_valuation["valuation_rate"],
+					movement_value=source_valuation["movement_value"],
+					qty_after_transaction=source_valuation[
+						"qty_after_transaction"
+					],
+					stock_value_after_transaction=source_valuation[
+						"stock_value_after_transaction"
+					],
 				)
+
+				# Add stock to target warehouse
+				self.create_ledger_entry(
+					item=row.item,
+					warehouse=row.target_warehouse,
+					qty=row.quantity,
+					valuation_rate=target_valuation["valuation_rate"],
+					movement_value=target_valuation["movement_value"],
+					qty_after_transaction=target_valuation[
+						"qty_after_transaction"
+					],
+					stock_value_after_transaction=target_valuation[
+						"stock_value_after_transaction"
+					],
+				)
+
+			elif self.valuation_method == "FIFO":
+				transfer = self.calculate_transfer_fifo_valuation(row)
+
+				current_source_qty, current_source_value = (
+					self.get_stock_balance(
+						row.item,
+						row.source_warehouse,
+					)
+				)
+
+				current_target_qty, current_target_value = (
+					self.get_stock_balance(
+						row.item,
+						row.target_warehouse,
+					)
+				)
+
+				source_qty = current_source_qty
+				source_value = current_source_value
+
+				target_qty = current_target_qty
+				target_value = current_target_value
+
+				for layer in transfer["layers"]:
+					qty = layer["quantity"]
+					rate = layer["rate"]
+					value = layer["value"]
+
+					# Remove this FIFO layer from source
+					source_qty -= qty
+					source_value -= value
+
+					self.create_ledger_entry(
+						item=row.item,
+						warehouse=row.source_warehouse,
+						qty=-qty,
+						valuation_rate=rate,
+						movement_value=-value,
+						qty_after_transaction=source_qty,
+						stock_value_after_transaction=source_value,
+					)
+
+					# Add this FIFO layer to target
+					target_qty += qty
+					target_value += value
+
+					self.create_ledger_entry(
+						item=row.item,
+						warehouse=row.target_warehouse,
+						qty=qty,
+						valuation_rate=rate,
+						movement_value=value,
+						qty_after_transaction=target_qty,
+						stock_value_after_transaction=target_value,
+					)
 
 			else:
 				frappe.throw(
 					f"Valuation method {self.valuation_method} "
 					"is not yet implemented."
 				)
-
-			# Remove stock from source warehouse
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.source_warehouse,
-				qty=-row.quantity,
-				valuation_rate=source_valuation["valuation_rate"],
-				movement_value=source_valuation["movement_value"],
-				qty_after_transaction=source_valuation[
-					"qty_after_transaction"
-				],
-				stock_value_after_transaction=source_valuation[
-					"stock_value_after_transaction"
-				],
-			)
-
-			# Add stock to target warehouse
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.target_warehouse,
-				qty=row.quantity,
-				valuation_rate=target_valuation["valuation_rate"],
-				movement_value=target_valuation["movement_value"],
-				qty_after_transaction=target_valuation[
-					"qty_after_transaction"
-				],
-				stock_value_after_transaction=target_valuation[
-					"stock_value_after_transaction"
-				],
-			)
 
 	def create_ledger_entry(
 			self,
@@ -306,7 +373,7 @@ class StockEntry(Document):
 		movement_value = row.quantity * row.rate
 		new_value = current_value + movement_value
 
-		if self.valuation_method == "FIFO":
+		if self.valuation_method in ["FIFO", "LIFO"]:
 			new_rate = row.rate
 
 		else:
@@ -444,32 +511,155 @@ class StockEntry(Document):
 			"stock_value_after_transaction": new_value,
 		}
 
-	def calculate_transfer_fifo_valuation(self, row):
-		source_valuation = self.calculate_consume_fifo_valuation(row)
-
-		target_qty, target_value = self.get_stock_balance(
-			row.item,
-			row.target_warehouse,
+	def calculate_consume_lifo_valuation(self, row):
+		ledger_entries = frappe.db.sql(
+			"""
+			SELECT
+				actual_quantity,
+				valuation_rate
+			FROM `tabStock Ledger Entry`
+			WHERE item = %s
+				AND warehouse = %s
+			ORDER BY posting_date, posting_time, creation
+			""",
+			(row.item, row.source_warehouse),
+			as_dict=True,
 		)
 
-		received_value = -source_valuation["movement_value"]
+		layers = []
 
-		new_qty = target_qty + row.quantity
-		new_value = target_value + received_value
+		for entry in ledger_entries:
+			qty = float(entry.actual_quantity)
+			rate = float(entry.valuation_rate or 0)
 
-		if new_qty:
-			new_rate = new_value/new_qty
-		else:
-			new_rate = 0
+			if qty > 0:
+				layers.append({
+					"quantity": qty,
+					"rate": rate,
+				})
 
-		target_valuation = {
-			"valuation_rate": new_rate,
-			"movement_value": received_value,
+			elif qty < 0:
+				qty_to_remove = abs(qty)
+
+				while qty_to_remove > 0 and layers:
+					layer = layers[-1]
+
+					qty_from_layer = min(
+						layer["quantity"],
+						qty_to_remove
+					)
+
+					layer["quantity"] -= qty_from_layer
+					qty_to_remove -= qty_from_layer
+
+					if layer["quantity"] <= 0:
+						layers.pop()
+
+				if qty_to_remove > 0:
+					frappe.throw(
+						f"Stock ledger is inconsistent for item {row.item} "
+						f"in warehouse {row.source_warehouse}."
+					)
+
+		available_qty = sum(
+			layer["quantity"]
+			for layer in layers
+		)
+
+		if available_qty < row.quantity:
+			frappe.throw(
+				f"Not enough stock for item {row.item} "
+				f"in warehouse {row.source_warehouse}"
+			)
+
+		qty_to_consume = row.quantity
+		issued_value = 0
+
+		while qty_to_consume > 0:
+			layer = layers[-1]
+
+			qty_from_layer = min(
+				layer["quantity"],
+				qty_to_consume
+			)
+
+			issued_value += (
+				qty_from_layer * layer["rate"]
+			)
+
+			layer["quantity"] -= qty_from_layer
+			qty_to_consume -= qty_from_layer
+
+			if layer["quantity"] <= 0:
+				layers.pop()
+
+		current_qty, current_value = self.get_stock_balance(
+			row.item,
+			row.source_warehouse
+		)
+
+		new_qty = current_qty - row.quantity
+		new_value = current_value - issued_value
+
+		valuation_rate = (
+			issued_value / row.quantity
+			if row.quantity
+			else 0
+		)
+
+		return {
+			"valuation_rate": valuation_rate,
+			"movement_value": -issued_value,
 			"qty_after_transaction": new_qty,
 			"stock_value_after_transaction": new_value,
 		}
 
-		return source_valuation, target_valuation
+	def calculate_transfer_fifo_valuation(self, row):
+		layers = self.get_fifo_layers(
+			row.item,
+			row.source_warehouse,
+		)
+
+		available_qty = sum(
+			layer["quantity"]
+			for layer in layers
+		)
+
+		if available_qty < row.quantity:
+			frappe.throw(
+				f"Not enough stock for item {row.item} "
+				f"in warehouse {row.source_warehouse}"
+			)
+
+		qty_to_transfer = row.quantity
+		transfer_layers = []
+
+		for layer in layers:
+			if qty_to_transfer <= 0:
+				break
+
+			qty_from_layer = min(
+				layer["quantity"],
+				qty_to_transfer,
+			)
+
+			transfer_layers.append({
+				"quantity": qty_from_layer,
+				"rate": layer["rate"],
+				"value": qty_from_layer * layer["rate"],
+			})
+
+			qty_to_transfer -= qty_from_layer
+
+		total_value = sum(
+			layer["value"]
+			for layer in transfer_layers
+		)
+
+		return {
+			"layers": transfer_layers,
+			"total_value": total_value,
+		}
 	
 	def calculate_transfer_receipt_valuation(self, row, valuation_rate):
 		current_qty, current_value = self.get_stock_balance(
