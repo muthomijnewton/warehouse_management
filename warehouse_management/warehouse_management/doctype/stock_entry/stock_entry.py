@@ -252,6 +252,16 @@ class StockEntry(Document):
 			elif self.valuation_method == "FIFO":
 				transfer = self.calculate_transfer_fifo_valuation(row)
 
+			elif self.valuation_method == "LIFO":
+				transfer = self.calculate_transfer_lifo_valuation(row)
+
+			else:
+				frappe.throw(
+					f"Valuation method {self.valuation_method} "
+					"is not yet implemented."
+				)
+
+			if self.valuation_method in ["FIFO", "LIFO"]:
 				current_source_qty, current_source_value = (
 					self.get_stock_balance(
 						row.item,
@@ -277,7 +287,6 @@ class StockEntry(Document):
 					rate = layer["rate"]
 					value = layer["value"]
 
-					# Remove this FIFO layer from source
 					source_qty -= qty
 					source_value -= value
 
@@ -291,7 +300,6 @@ class StockEntry(Document):
 						stock_value_after_transaction=source_value,
 					)
 
-					# Add this FIFO layer to target
 					target_qty += qty
 					target_value += value
 
@@ -304,12 +312,6 @@ class StockEntry(Document):
 						qty_after_transaction=target_qty,
 						stock_value_after_transaction=target_value,
 					)
-
-			else:
-				frappe.throw(
-					f"Valuation method {self.valuation_method} "
-					"is not yet implemented."
-				)
 
 	def create_ledger_entry(
 			self,
@@ -635,6 +637,53 @@ class StockEntry(Document):
 		transfer_layers = []
 
 		for layer in layers:
+			if qty_to_transfer <= 0:
+				break
+
+			qty_from_layer = min(
+				layer["quantity"],
+				qty_to_transfer,
+			)
+
+			transfer_layers.append({
+				"quantity": qty_from_layer,
+				"rate": layer["rate"],
+				"value": qty_from_layer * layer["rate"],
+			})
+
+			qty_to_transfer -= qty_from_layer
+
+		total_value = sum(
+			layer["value"]
+			for layer in transfer_layers
+		)
+
+		return {
+			"layers": transfer_layers,
+			"total_value": total_value,
+		}
+
+	def calculate_transfer_lifo_valuation(self, row):
+		layers = self.get_fifo_layers(
+			row.item,
+			row.source_warehouse,
+		)
+
+		available_qty = sum(
+			layer["quantity"]
+			for layer in layers
+		)
+
+		if available_qty < row.quantity:
+			frappe.throw(
+				f"Not enough stock for item {row.item} "
+				f"in warehouse {row.source_warehouse}"
+			)
+
+		qty_to_transfer = row.quantity
+		transfer_layers = []
+
+		for layer in reversed(layers):
 			if qty_to_transfer <= 0:
 				break
 

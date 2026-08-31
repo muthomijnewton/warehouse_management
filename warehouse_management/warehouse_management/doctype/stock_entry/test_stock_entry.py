@@ -478,18 +478,11 @@ class TestStockEntry(FrappeTestCase):
 			self.shelf_b
 		)
 
-		# Shelf A should have 8 units from the 30,000 layer.
 		self.assertEqual(source_qty, 8)
 		self.assertEqual(source_value, 240000)
 
-		# Shelf B should have its original 5 units plus 12 transferred units.
 		self.assertEqual(target_qty, 17)
 
-		# Original stock: 5 × 10,000 = 50,000
-		# Transferred stock:
-		# 10 × 20,000 = 200,000
-		#  2 × 30,000 =  60,000
-		# Total = 310,000
 		self.assertEqual(target_value, 310000)
 
 	def test_lifo_receipt(self):
@@ -555,12 +548,66 @@ class TestStockEntry(FrappeTestCase):
 
 		qty, value = self.get_balance(self.shelf_a)
 
-		# LIFO consumption:
-		#
-		# 4 × 30,000 = 120,000
-		#
-		# Initial value = 500,000
-		# Remaining value = 380,000
-
 		self.assertEqual(qty, 16)
 		self.assertEqual(value, 380000)
+
+	def test_lifo_transfer(self):
+		# Shelf A: first LIFO layer
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		first_receipt.valuation_method = "LIFO"
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		# Shelf A: second LIFO layer
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		second_receipt.valuation_method = "LIFO"
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		# Transfer 12 units from Shelf A to Shelf B using LIFO.
+		transfer = self.create_stock_entry(
+			purpose="Transfer",
+			quantity=12,
+			source_warehouse=self.shelf_a,
+			target_warehouse=self.shelf_b,
+		)
+
+		transfer.valuation_method = "LIFO"
+		transfer.insert(ignore_permissions=True)
+		transfer.submit()
+
+		source_qty, source_value = self.get_balance(
+			self.shelf_a
+		)
+
+		target_qty, target_value = self.get_balance(
+			self.shelf_b
+		)
+
+		# LIFO transfer:
+		#
+		# 10 × 30,000 = 300,000
+		#  2 × 20,000 =  40,000
+		# Total transferred = 340,000
+		#
+		# Shelf A is left with:
+		# 8 × 20,000 = 160,000
+
+		self.assertEqual(source_qty, 8)
+		self.assertEqual(source_value, 160000)
+
+		self.assertEqual(target_qty, 12)
+		self.assertEqual(target_value, 340000)
+
