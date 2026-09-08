@@ -43,6 +43,8 @@ Stores information about inventory items, including:
 - Standard Cost
 - Disabled status
 
+  <img width="957" height="448" alt="Item doctype" src="https://github.com/user-attachments/assets/46b02d6a-ac2b-4b7d-adc5-f040b2f3c852" />
+
 ### Warehouse
 
 Represents a physical or logical storage location.
@@ -54,6 +56,7 @@ Distribution Centre
 │   ├── Shelf A
 │   └── Shelf B
 └── Retail Shop
+<img width="958" height="432" alt="Warehouse Doctype" src="https://github.com/user-attachments/assets/8dbc556b-6beb-4935-b717-3f02136360d9" />
 
 ## Stock Entry
 
@@ -66,6 +69,7 @@ Supported transaction purposes:
 - **Transfer** - Moves stock from one warehouse to another.
 
 Each Stock Entry contains one or more Stock Entry Items.
+<img width="955" height="442" alt="Stock Entry Doctype" src="https://github.com/user-attachments/assets/6de36ef0-6d02-40bb-a063-56a6533d0617" />
 
 ## Stock Ledger Entry
 
