@@ -95,6 +95,29 @@ class StockEntry(Document):
 					f"Item {item.name} is disabled."
 				)
 
+	def get_valuation_method(self, item):
+		item_method = frappe.db.get_value(
+			"Item",
+			item,
+			"valuation_method",
+		)
+
+		if item_method:
+			return item_method
+
+		settings_method = frappe.db.get_single_value(
+			"Warehouse Settings",
+			"default_valuation_method",
+		)
+
+		if settings_method:
+			return settings_method
+
+		frappe.throw(
+			"No valuation method configured. "
+			"Set a valuation method on the Item or in Warehouse Settings."
+		)
+
 	def on_submit(self):
 		if self.purpose == 'Receipt':
 			self.handle_receipt()
@@ -122,26 +145,28 @@ class StockEntry(Document):
 	def handle_consume(self):
 		for row in self.items:
 
+			valuation_method = self.get_valuation_method(row.item)
+
 			print(
 				f"\nCONSUME VALUATION METHOD:"
-				f"{self.valuation_method}"
+				f"{valuation_method}"
 			)
-			
-			if self.valuation_method == "Moving Average":
+
+			if valuation_method == "Moving Average":
 				print(">>> Using Moving Average")
 				valuation = self.calculate_consume_valuation(row)
 
-			elif self.valuation_method == "FIFO":
+			elif valuation_method == "FIFO":
 				print(">>> Using FIFO")
 				valuation = self.calculate_consume_fifo_valuation(row)
 
-			elif self.valuation_method == "LIFO":
+			elif valuation_method == "LIFO":
 				print(">>> Using LIFO")
 				valuation = self.calculate_consume_lifo_valuation(row)
 
 			else:
 				frappe.throw(
-					f"Valuation method {self.valuation_method} is not yet implemented."
+					f"Valuation method {valuation_method} is not yet implemented."
 				)
 
 			self.create_ledger_entry(
@@ -151,7 +176,9 @@ class StockEntry(Document):
 				valuation_rate=valuation["valuation_rate"],
 				movement_value=valuation["movement_value"],
 				qty_after_transaction=valuation["qty_after_transaction"],
-				stock_value_after_transaction=valuation["stock_value_after_transaction"],
+				stock_value_after_transaction=valuation[
+					"stock_value_after_transaction"
+				],
 			)
 
 	def get_fifo_layers(self, item, warehouse):
@@ -159,7 +186,8 @@ class StockEntry(Document):
 			"""
 			SELECT
 				actual_quantity,
-				valuation_rate
+				valuation_rate,
+				stock_entry
 			FROM `tabStock Ledger Entry`
 			WHERE item = %s
 				AND warehouse = %s
@@ -177,6 +205,7 @@ class StockEntry(Document):
 
 			if qty > 0:
 				layers.append({
+					"stock_entry": entry.stock_entry,
 					"quantity": qty,
 					"rate": rate,
 				})
@@ -209,12 +238,14 @@ class StockEntry(Document):
 	def handle_transfer(self):
 		for row in self.items:
 
+			valuation_method = self.get_valuation_method(row.item)
+
 			print(
 				f"\nTRANSFER VALUATION METHOD:"
-				f"{self.valuation_method}"
+				f"{valuation_method}"
 			)
 
-			if self.valuation_method == "Moving Average":
+			if valuation_method == "Moving Average":
 				source_valuation, target_valuation = (
 					self.calculate_transfer_valuation(row)
 				)
@@ -249,19 +280,19 @@ class StockEntry(Document):
 					],
 				)
 
-			elif self.valuation_method == "FIFO":
+			elif valuation_method == "FIFO":
 				transfer = self.calculate_transfer_fifo_valuation(row)
 
-			elif self.valuation_method == "LIFO":
+			elif valuation_method == "LIFO":
 				transfer = self.calculate_transfer_lifo_valuation(row)
 
 			else:
 				frappe.throw(
-					f"Valuation method {self.valuation_method} "
+					f"Valuation method {valuation_method} "
 					"is not yet implemented."
 				)
 
-			if self.valuation_method in ["FIFO", "LIFO"]:
+			if valuation_method in ["FIFO", "LIFO"]:
 				current_source_qty, current_source_value = (
 					self.get_stock_balance(
 						row.item,
@@ -375,7 +406,9 @@ class StockEntry(Document):
 		movement_value = row.quantity * row.rate
 		new_value = current_value + movement_value
 
-		if self.valuation_method in ["FIFO", "LIFO"]:
+		valuation_method = self.get_valuation_method(row.item)
+
+		if valuation_method in ["FIFO", "LIFO"]:
 			new_rate = row.rate
 
 		else:
@@ -421,96 +454,66 @@ class StockEntry(Document):
 		}
 
 	def calculate_consume_fifo_valuation(self, row):
-		ledger_entries = frappe.db.sql(
-			"""
-			SELECT
-				actual_quantity,
-				valuation_rate
-			FROM `tabStock Ledger Entry`
-			WHERE item = %s
-				AND warehouse = %s
-			ORDER BY posting_date, posting_time, creation
-			""",
-			(row.item, row.source_warehouse),
-			as_dict=True,
-		)
-
-		layers = []
-
-		for entry in ledger_entries:
-			qty = float(entry.actual_quantity)
-			rate = float(entry.valuation_rate or 0)
-
-			if qty > 0:
-				layers.append({
-					"quantity": qty,
-					"rate": rate,
-				})
-
-			elif qty < 0:
-				qty_to_remove = abs(qty)
-
-				while qty_to_remove > 0 and layers:
-					layer = layers[0]
-
-					if layer["quantity"] <= qty_to_remove:
-						qty_to_remove -= layer["quantity"]
-						layers.pop(0)
-					else:
-						layer["quantity"] -= qty_to_remove
-						qty_to_remove = 0
-
-		available_qty = sum(
-			layer["quantity"]
-			for layer in layers
-		)
-
-		if available_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} "
-				f"in warehouse {row.source_warehouse}"
-			)
-
-		qty_to_consume = row.quantity
-		issued_value = 0
-
-		while qty_to_consume > 0:
-			layer = layers[0]
-
-			qty_from_layer = min(
-				layer["quantity"],
-				qty_to_consume
-			)
-
-			issued_value += (
-				qty_from_layer * layer["rate"]
-			)
-
-			layer["quantity"] -= qty_from_layer
-			qty_to_consume -= qty_from_layer
-
-			if layer["quantity"] <= 0:
-				layers.pop(0)
-
 		current_qty, current_value = self.get_stock_balance(
 			row.item,
 			row.source_warehouse,
 		)
 
+		if current_qty < row.quantity:
+			frappe.throw(
+				f"Not enough stock for item {row.item} "
+				f"in warehouse {row.source_warehouse}"
+			)
+
+		layers = self.get_fifo_layers(
+			row.item,
+			row.source_warehouse,
+		)
+
+		remaining_qty = row.quantity
+		issued_value = 0
+		consumed_layers = []
+
+		while remaining_qty > 0 and layers:
+			layer = layers[0]
+
+			qty_from_layer = min(
+				layer["quantity"],
+				remaining_qty,
+			)
+
+			issued_value += qty_from_layer * layer["rate"]
+
+			consumed_layers.append({
+				"stock_entry": layer["stock_entry"],
+				"quantity": qty_from_layer,
+				"rate": layer["rate"],
+				"value": qty_from_layer * layer["rate"],
+			})
+
+			layer["quantity"] -= qty_from_layer
+			remaining_qty -= qty_from_layer
+
+			if layer["quantity"] <= 0:
+				layers.pop(0)
+
+		if remaining_qty > 0:
+			frappe.throw(
+				f"Stock ledger is inconsistent for item {row.item} "
+				f"in warehouse {row.source_warehouse}."
+			)
+
+		valuation_rate = issued_value / row.quantity if row.quantity else 0
+
 		new_qty = current_qty - row.quantity
 		new_value = current_value - issued_value
-
-		valuation_rate = (
-			issued_value / row.quantity
-			if row.quantity
-			else 0
-		)
 
 		return {
 			"valuation_rate": valuation_rate,
 			"movement_value": -issued_value,
 			"qty_after_transaction": new_qty,
 			"stock_value_after_transaction": new_value,
+			"consumed_layers": consumed_layers,
 		}
 
 	def calculate_consume_lifo_valuation(self, row):

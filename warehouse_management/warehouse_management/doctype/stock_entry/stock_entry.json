@@ -15,6 +15,7 @@
   "section_break_qpzt",
   "valuation_method",
   "items",
+  "stock_entry_allocations",
   "naming_series"
  ],
  "fields": [
@@ -83,13 +84,20 @@
    "fieldtype": "Select",
    "label": "Valuation Method",
    "options": "Moving Average\nFIFO\nLIFO"
+  },
+  {
+   "fieldname": "stock_entry_allocations",
+   "fieldtype": "Table",
+   "label": "Stock Entry Allocations",
+   "options": "Stock Entry Allocation",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-29 04:30:05.078065",
+ "modified": "2026-09-08 06:37:59.961178",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",

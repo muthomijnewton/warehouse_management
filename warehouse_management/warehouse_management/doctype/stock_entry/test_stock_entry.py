@@ -11,6 +11,16 @@ class TestStockEntry(FrappeTestCase):
 	def setUp(self):
 		self.item = self.get_item()
 
+		item = frappe.get_doc("Item", self.item)
+		item.valuation_method = None
+		item.save(ignore_permissions=True)
+
+		frappe.db.set_single_value(
+			"Warehouse Settings",
+			"default_valuation_method",
+			"Moving Average",
+		)
+
 		self.shelf_a = self.get_warehouse(
 			"Test Shelf A",
 			"TEST-SHELF-A",
@@ -46,6 +56,21 @@ class TestStockEntry(FrappeTestCase):
 		item.insert(ignore_permissions=True)
 
 		return item.name
+
+	def set_item_valuation_method(self, method):
+			frappe.db.set_value(
+					"Item",
+					self.item,
+					"valuation_method",
+					method,
+			)
+
+	def set_global_valuation_method(self, method):
+			frappe.db.set_single_value(
+					"Warehouse Settings",
+					"default_valuation_method",
+					method,
+			)
 
 	def get_warehouse(self, name, code):
 		if frappe.db.exists("Warehouse", name):
@@ -336,6 +361,8 @@ class TestStockEntry(FrappeTestCase):
 		self.assertEqual(value, 400_000)
 
 	def test_fifo_valuation(self):
+		self.set_item_valuation_method("FIFO")
+
 		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
 			quantity=10,
@@ -343,7 +370,6 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "FIFO"
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -354,7 +380,6 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "FIFO"
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()	
 
@@ -364,7 +389,6 @@ class TestStockEntry(FrappeTestCase):
 			source_warehouse=self.shelf_a,
 		)	
 
-		consume.valuation_method = "FIFO"
 		consume.insert(ignore_permissions=True)
 		consume.submit()
 
@@ -374,6 +398,9 @@ class TestStockEntry(FrappeTestCase):
 		self.assertEqual(value, 420_000)
 
 	def test_fifo_transfer(self):
+
+		self.set_item_valuation_method("FIFO")
+
 		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
 			quantity=10,
@@ -381,7 +408,6 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "FIFO"
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -392,7 +418,6 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "FIFO"
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
@@ -403,7 +428,7 @@ class TestStockEntry(FrappeTestCase):
 			target_warehouse=self.shelf_b,
 		)
 
-		transfer.valuation_method = "FIFO"
+		self.set_item_valuation_method("FIFO")
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
@@ -430,7 +455,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "FIFO"
+		self.set_item_valuation_method("FIFO")
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -442,7 +467,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "FIFO"
+		self.set_item_valuation_method("FIFO")
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
@@ -454,7 +479,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=10000,
 		)
 
-		target_receipt.valuation_method = "FIFO"
+		self.set_item_valuation_method("FIFO")
 		target_receipt.insert(ignore_permissions=True)
 		target_receipt.submit()
 
@@ -466,7 +491,7 @@ class TestStockEntry(FrappeTestCase):
 			target_warehouse=self.shelf_b,
 		)
 
-		transfer.valuation_method = "FIFO"
+		self.set_item_valuation_method("FIFO")
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
@@ -493,7 +518,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -504,7 +529,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
@@ -521,7 +546,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -532,7 +557,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
@@ -542,7 +567,7 @@ class TestStockEntry(FrappeTestCase):
 			source_warehouse=self.shelf_a,
 		)
 
-		consume.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		consume.insert(ignore_permissions=True)
 		consume.submit()
 
@@ -560,7 +585,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=20000,
 		)
 
-		first_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		first_receipt.insert(ignore_permissions=True)
 		first_receipt.submit()
 
@@ -572,7 +597,7 @@ class TestStockEntry(FrappeTestCase):
 			rate=30000,
 		)
 
-		second_receipt.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		second_receipt.insert(ignore_permissions=True)
 		second_receipt.submit()
 
@@ -584,7 +609,7 @@ class TestStockEntry(FrappeTestCase):
 			target_warehouse=self.shelf_b,
 		)
 
-		transfer.valuation_method = "LIFO"
+		self.set_item_valuation_method("LIFO")
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
@@ -611,3 +636,190 @@ class TestStockEntry(FrappeTestCase):
 		self.assertEqual(target_qty, 12)
 		self.assertEqual(target_value, 340000)
 
+	def test_fifo_layers_preserve_stock_entry(self):
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		self.set_item_valuation_method("FIFO")
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=20,
+			target_warehouse=self.shelf_a,
+			rate=25000,
+		)
+
+		self.set_item_valuation_method("FIFO")
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		layers = second_receipt.get_fifo_layers(
+			self.item,
+			self.shelf_a,
+		)
+
+		test_layers = [
+			layer
+			for layer in layers
+			if layer["stock_entry"] in {
+				first_receipt.name,
+				second_receipt.name,
+			}
+		]
+
+		self.assertEqual(len(test_layers), 2)
+
+		self.assertEqual(
+			test_layers[0]["stock_entry"],
+			first_receipt.name,
+		)
+		self.assertEqual(test_layers[0]["quantity"], 10)
+		self.assertEqual(test_layers[0]["rate"], 20000)
+
+		self.assertEqual(
+			test_layers[1]["stock_entry"],
+			second_receipt.name,
+		)
+		self.assertEqual(test_layers[1]["quantity"], 20)
+		self.assertEqual(test_layers[1]["rate"], 25000)
+			
+	def test_fifo_consumption_tracks_stock_entry_layers(self):
+		first_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=20000,
+		)
+
+		self.set_item_valuation_method("FIFO")
+		first_receipt.insert(ignore_permissions=True)
+		first_receipt.submit()
+
+		second_receipt = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=10,
+			target_warehouse=self.shelf_a,
+			rate=30000,
+		)
+
+		self.set_item_valuation_method("FIFO")
+		second_receipt.insert(ignore_permissions=True)
+		second_receipt.submit()
+
+		consume = self.create_stock_entry(
+			purpose="Consume",
+			quantity=12,
+			source_warehouse=self.shelf_a,
+			rate=0,
+		)
+
+		self.set_item_valuation_method("FIFO")
+		consume.insert(ignore_permissions=True)
+
+		valuation = consume.calculate_consume_fifo_valuation(
+			consume.items[0]
+		)
+
+		consumed_layers = valuation["consumed_layers"]
+
+		self.assertEqual(len(consumed_layers), 2)
+
+		self.assertEqual(
+			consumed_layers[0]["stock_entry"],
+			first_receipt.name,
+		)
+		self.assertEqual(
+			consumed_layers[0]["quantity"],
+			10,
+		)
+		self.assertEqual(
+			consumed_layers[0]["rate"],
+			20000,
+		)
+
+		self.assertEqual(
+			consumed_layers[1]["stock_entry"],
+			second_receipt.name,
+		)
+		self.assertEqual(
+			consumed_layers[1]["quantity"],
+			2,
+		)
+		self.assertEqual(
+			consumed_layers[1]["rate"],
+			30000,
+		)
+
+		self.assertEqual(
+			valuation["movement_value"],
+			-260000,
+		)
+
+	def test_global_fifo_when_item_method_is_blank(self):
+			self.set_global_valuation_method("FIFO")
+			self.set_item_valuation_method(None)
+
+			stock_entry = self.create_stock_entry(
+					purpose="Receipt",
+					quantity=1,
+					target_warehouse=self.shelf_a,
+			)
+
+			self.assertEqual(
+					stock_entry.get_valuation_method(self.item),
+					"FIFO",
+			)
+
+
+	def test_global_lifo_when_item_method_is_blank(self):
+			self.set_global_valuation_method("LIFO")
+			self.set_item_valuation_method(None)
+
+			stock_entry = self.create_stock_entry(
+					purpose="Receipt",
+					quantity=1,
+					target_warehouse=self.shelf_a,
+			)
+
+			self.assertEqual(
+					stock_entry.get_valuation_method(self.item),
+					"LIFO",
+			)
+
+
+	def test_item_lifo_overrides_global_fifo(self):
+			self.set_global_valuation_method("FIFO")
+			self.set_item_valuation_method("LIFO")
+
+			stock_entry = self.create_stock_entry(
+					purpose="Receipt",
+					quantity=1,
+					target_warehouse=self.shelf_a,
+			)
+
+			self.assertEqual(
+					stock_entry.get_valuation_method(self.item),
+					"LIFO",
+			)
+
+
+	def test_item_fifo_overrides_global_lifo(self):
+			self.set_global_valuation_method("LIFO")
+			self.set_item_valuation_method("FIFO")
+
+			stock_entry = self.create_stock_entry(
+					purpose="Receipt",
+					quantity=1,
+					target_warehouse=self.shelf_a,
+			)
+
+			self.assertEqual(
+					stock_entry.get_valuation_method(self.item),
+					"FIFO",
+			)

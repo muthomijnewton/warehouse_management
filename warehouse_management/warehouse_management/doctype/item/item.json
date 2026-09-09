@@ -10,7 +10,7 @@
   "item_code",
   "item_name",
   "unit",
-  "standard_cost",
+  "valuation_method",
   "column_break_mrul",
   "description",
   "disabled"
@@ -49,12 +49,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "standard_cost",
-   "fieldtype": "Currency",
-   "label": "Standard Cost",
-   "reqd": 1
-  },
-  {
    "default": "0",
    "fieldname": "disabled",
    "fieldtype": "Check",
@@ -63,12 +57,18 @@
   {
    "fieldname": "column_break_mrul",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "valuation_method",
+   "fieldtype": "Select",
+   "label": "Valuation Method",
+   "options": "\nMoving Average\nFIFO\nLIFO"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-27 08:11:10.699626",
+ "modified": "2026-09-09 04:46:49.095770",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Item",
