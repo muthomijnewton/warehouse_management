@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "section_break_gs1w",
+  "item",
   "stock_entry",
   "quantity",
   "valuation_rate",
@@ -16,6 +17,14 @@
   {
    "fieldname": "section_break_gs1w",
    "fieldtype": "Section Break"
+  },
+  {
+    "fieldname": "item",
+    "fieldtype": "Link",
+    "in_list_view":1,
+    "label": "Item",
+    "options": "Item",
+    "read_only": 1
   },
   {
    "fieldname": "stock_entry",

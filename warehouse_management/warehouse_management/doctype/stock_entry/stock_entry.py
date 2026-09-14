@@ -169,6 +169,12 @@ class StockEntry(Document):
 					f"Valuation method {valuation_method} is not yet implemented."
 				)
 
+			if valuation_method in ("FIFO", "LIFO"):
+				self.create_stock_entry_allocations(
+					item=row.item,
+					layers=valuation["consumed_layers"],
+				)
+
 			self.create_ledger_entry(
 				item=row.item,
 				warehouse=row.source_warehouse,
@@ -371,6 +377,19 @@ class StockEntry(Document):
 
 		ledger.insert(ignore_permissions=True)
 
+	def create_stock_entry_allocations(self, item, layers):
+		for layer in layers:
+			self.append(
+				"stock_entry_allocations",
+				{
+					"item": item,
+					"stock_entry": layer["stock_entry"],
+					"quantity": layer["quantity"],
+					"valuation_rate": layer["rate"],
+					"value": layer["value"],
+				},
+			)
+
 	def get_stock_balance(self, item, warehouse):
 		result = frappe.db.sql(
 			"""
@@ -521,7 +540,8 @@ class StockEntry(Document):
 			"""
 			SELECT
 				actual_quantity,
-				valuation_rate
+				valuation_rate,
+				stock_entry
 			FROM `tabStock Ledger Entry`
 			WHERE item = %s
 				AND warehouse = %s
@@ -539,6 +559,7 @@ class StockEntry(Document):
 
 			if qty > 0:
 				layers.append({
+					"stock_entry": entry.stock_entry,
 					"quantity": qty,
 					"rate": rate,
 				})
@@ -551,7 +572,7 @@ class StockEntry(Document):
 
 					qty_from_layer = min(
 						layer["quantity"],
-						qty_to_remove
+						qty_to_remove,
 					)
 
 					layer["quantity"] -= qty_from_layer
@@ -579,18 +600,26 @@ class StockEntry(Document):
 
 		qty_to_consume = row.quantity
 		issued_value = 0
+		consumed_layers = []
 
 		while qty_to_consume > 0:
 			layer = layers[-1]
 
 			qty_from_layer = min(
 				layer["quantity"],
-				qty_to_consume
+				qty_to_consume,
 			)
 
-			issued_value += (
-				qty_from_layer * layer["rate"]
-			)
+			layer_value = qty_from_layer * layer["rate"]
+
+			issued_value += layer_value
+
+			consumed_layers.append({
+				"stock_entry": layer["stock_entry"],
+				"quantity": qty_from_layer,
+				"rate": layer["rate"],
+				"value": layer_value,
+			})
 
 			layer["quantity"] -= qty_from_layer
 			qty_to_consume -= qty_from_layer
@@ -600,7 +629,7 @@ class StockEntry(Document):
 
 		current_qty, current_value = self.get_stock_balance(
 			row.item,
-			row.source_warehouse
+			row.source_warehouse,
 		)
 
 		new_qty = current_qty - row.quantity
@@ -617,6 +646,7 @@ class StockEntry(Document):
 			"movement_value": -issued_value,
 			"qty_after_transaction": new_qty,
 			"stock_value_after_transaction": new_value,
+			"consumed_layers": consumed_layers,
 		}
 
 	def calculate_transfer_fifo_valuation(self, row):
