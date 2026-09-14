@@ -299,6 +299,11 @@ class StockEntry(Document):
 				)
 
 			if valuation_method in ["FIFO", "LIFO"]:
+				self.create_stock_entry_allocations(
+					item=row.item,
+					layers=transfer["layers"],
+				)
+
 				current_source_qty, current_source_value = (
 					self.get_stock_balance(
 						row.item,
@@ -679,6 +684,7 @@ class StockEntry(Document):
 			)
 
 			transfer_layers.append({
+				"stock_entry": layer["stock_entry"],
 				"quantity": qty_from_layer,
 				"rate": layer["rate"],
 				"value": qty_from_layer * layer["rate"],
@@ -726,6 +732,7 @@ class StockEntry(Document):
 			)
 
 			transfer_layers.append({
+				"stock_entry": layer["stock_entry"],
 				"quantity": qty_from_layer,
 				"rate": layer["rate"],
 				"value": qty_from_layer * layer["rate"],
