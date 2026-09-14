@@ -679,6 +679,42 @@ class TestStockEntry(FrappeTestCase):
 		self.assertEqual(target_qty, 12)
 		self.assertEqual(target_value, 340000)
 
+	def test_lifo_consume_creates_stock_entry_allocations(self):
+		self.set_item_valuation_method("LIFO")
+
+		receipt_a = self.create_stock_entry(
+			purpose="Receipt",
+			target_warehouse=self.shelf_a,
+			quantity=10,
+			rate=20000,
+		)
+		receipt_a.submit()
+
+		receipt_b = self.create_stock_entry(
+			purpose="Receipt",
+			target_warehouse=self.shelf_a,
+			quantity=15,
+			rate=22000,
+		)
+		receipt_b.submit()
+
+		consume = self.create_stock_entry(
+			purpose="Consume",
+			source_warehouse=self.shelf_a,
+			quantity=12,
+		)
+		consume.submit()
+
+		self.assertEqual(len(consume.stock_entry_allocations), 1)
+
+		allocation = consume.stock_entry_allocations[0]
+
+		self.assertEqual(allocation.item, self.item)
+		self.assertEqual(allocation.stock_entry, receipt_b.name)
+		self.assertEqual(allocation.quantity, 12)
+		self.assertEqual(allocation.valuation_rate, 22000)
+		self.assertEqual(allocation.value, 264000)
+
 	def test_fifo_layers_preserve_stock_entry(self):
 		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
