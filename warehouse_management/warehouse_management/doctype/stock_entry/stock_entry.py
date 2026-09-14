@@ -119,14 +119,25 @@ class StockEntry(Document):
 		)
 
 	def on_submit(self):
-		if self.purpose == 'Receipt':
-			self.handle_receipt()
+			if self.items:
+					valuation_method = self.get_valuation_method(
+							self.items[0].item
+					)
 
-		elif self.purpose == 'Consume':
-			self.handle_consume()
+					self.valuation_method_used = valuation_method
+					self.db_set(
+							"valuation_method_used",
+							valuation_method,
+					)
 
-		elif self.purpose == 'Transfer':
-			self.handle_transfer()
+			if self.purpose == 'Receipt':
+					self.handle_receipt()
+
+			elif self.purpose == 'Consume':
+					self.handle_consume()
+
+			elif self.purpose == 'Transfer':
+					self.handle_transfer()
 
 	def handle_receipt(self):
 		for row in self.items:
@@ -394,6 +405,10 @@ class StockEntry(Document):
 					"value": layer["value"],
 				},
 			)
+
+		self.update_child_table(
+			"stock_entry_allocations",
+		)
 
 	def get_stock_balance(self, item, warehouse):
 		result = frappe.db.sql(

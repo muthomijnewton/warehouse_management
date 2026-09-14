@@ -13,10 +13,10 @@
   "column_break_ckjv",
   "posting_time",
   "section_break_qpzt",
-  "valuation_method",
   "items",
   "stock_entry_allocations",
-  "naming_series"
+  "naming_series",
+  "valuation_method_used"
  ],
  "fields": [
   {
@@ -56,6 +56,12 @@
    "reqd": 1
   },
   {
+   "fieldname": "valuation_method_used",
+   "fieldtype": "Data",
+   "label": "Valuation Method Used",
+   "read_only": 1
+  },
+  {
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
@@ -79,13 +85,6 @@
    "options": "STE.-.YYYY.-.###"
   },
   {
-   "default": "Moving Average",
-   "fieldname": "valuation_method",
-   "fieldtype": "Select",
-   "label": "Valuation Method",
-   "options": "Moving Average\nFIFO\nLIFO"
-  },
-  {
    "fieldname": "stock_entry_allocations",
    "fieldtype": "Table",
    "label": "Stock Entry Allocations",
@@ -97,7 +96,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-08 06:37:59.961178",
+ "modified": "2026-09-14 08:31:14.208057",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
