@@ -2,66 +2,70 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import getdate
 
 
 def execute(filters=None):
-	filters = filters or {}
+	filters = dict(filters or {})
+	if not filters.get("item") or not filters.get("warehouse"):
+		frappe.throw("Select an Item and Warehouse for the Stock Ledger report.")
+	if (
+		filters.get("from_date")
+		and filters.get("to_date")
+		and getdate(filters["from_date"]) > getdate(filters["to_date"])
+	):
+		frappe.throw("From Date must not be after To Date.")
 
 	columns = get_columns()
 
 	opening_qty, opening_value = get_opening_balance(filters)
 	ledger_data = get_data(filters)
 
-	data = [{
-		"description": "Opening Balance",
-		"posting_date": None,
-		"posting_time": None,
-		"item": filters.get("item"),
-		"warehouse": filters.get("warehouse"),
-		"stock_entry": None,
-		"actual_quantity": None,
-		"valuation_rate": None,
-		"stock_value": None,
-		"qty_after_transaction": opening_qty,
-		"stock_value_after_transaction": opening_value,
-	}]
+	data = [
+		{
+			"description": "Opening Balance",
+			"posting_date": None,
+			"posting_time": None,
+			"item": filters.get("item"),
+			"warehouse": filters.get("warehouse"),
+			"stock_entry": None,
+			"actual_quantity": None,
+			"valuation_rate": None,
+			"stock_value": None,
+			"qty_after_transaction": opening_qty,
+			"stock_value_after_transaction": opening_value,
+		}
+	]
 
 	data.extend(ledger_data)
 
-	closing_qty = opening_qty + sum(
-		row.actual_quantity or 0 
-		for row in ledger_data
-	)
+	closing_qty = opening_qty + sum(row.actual_quantity or 0 for row in ledger_data)
 
-	closing_value = opening_value + sum(
-		row.stock_value or 0
-		for row in ledger_data
-	)
+	closing_value = opening_value + sum(row.stock_value or 0 for row in ledger_data)
 
-	closing_rate = (
-		closing_value / closing_qty
-		if closing_qty > 0
-		else 0
-	)
+	closing_rate = closing_value / closing_qty if closing_qty > 0 else 0
 
-	data.append({
-		"description": "Closing Balance",
-		"posting_date": None,
-		"posting_time": None,
-		"item": filters.get("item"),
-		"warehouse": filters.get("warehouse"),
-		"stock_entry": None,
-		"actual_quantity": None,
-		"valuation_rate": closing_rate,
-		"stock_value": None,
-		"qty_after_transaction": closing_qty,
-		"stock_value_after_transaction": closing_value,
-	})
+	data.append(
+		{
+			"description": "Closing Balance",
+			"posting_date": None,
+			"posting_time": None,
+			"item": filters.get("item"),
+			"warehouse": filters.get("warehouse"),
+			"stock_entry": None,
+			"actual_quantity": None,
+			"valuation_rate": closing_rate,
+			"stock_value": None,
+			"qty_after_transaction": closing_qty,
+			"stock_value_after_transaction": closing_value,
+		}
+	)
 
 	return columns, data
 
+
 def get_columns():
-	return[
+	return [
 		{
 			"label": "Description",
 			"fieldname": "description",
@@ -97,7 +101,7 @@ def get_columns():
 		{
 			"label": "Stock Entry",
 			"fieldname": "stock_entry",
-			"fieldtype":"Link",
+			"fieldtype": "Link",
 			"options": "Stock Entry",
 			"width": 120,
 		},
@@ -107,18 +111,8 @@ def get_columns():
 			"fieldtype": "Float",
 			"width": 120,
 		},
-		{
-			"label": "Valuation Rate",
-			"fieldname": "valuation_rate",
-			"fieldtype": "Currency",
-			"width": 120
-		},
-		{
-			"label": "Stock Value",
-			"fieldname": "stock_value",
-			"fieldtype": "Currency",
-			"width": 120
-		},
+		{"label": "Valuation Rate", "fieldname": "valuation_rate", "fieldtype": "Currency", "width": 120},
+		{"label": "Stock Value", "fieldname": "stock_value", "fieldtype": "Currency", "width": 120},
 		{
 			"label": "Qty After Transaction",
 			"fieldname": "qty_after_transaction",
@@ -132,14 +126,15 @@ def get_columns():
 			"width": 180,
 		},
 	]
-def get_opening_balance(filters):
-	conditions = [
-		"posting_date < %(from_date)s"
-	]
 
-	values = {
-		"from_date": filters.get("from_date")
-	}
+
+def get_opening_balance(filters):
+	if not filters.get("from_date"):
+		return 0, 0
+
+	conditions = ["posting_date < %(from_date)s"]
+
+	values = {"from_date": filters.get("from_date")}
 
 	if filters.get("item"):
 		conditions.append("item = %(item)s")
@@ -164,6 +159,7 @@ def get_opening_balance(filters):
 	)
 
 	return result[0].quantity, result[0].value
+
 
 def get_data(filters):
 	conditions = []
@@ -208,20 +204,5 @@ def get_data(filters):
 		ORDER BY posting_date, posting_time, creation
 		""",
 		values,
-		as_dict = True,
+		as_dict=True,
 	)
-
-def execute_snapshot_report(filters: dict | None = None):
-	"""Return columns and data for the report.
-
-	This is the main entry point for snapshot report. When 'Synced
-	Report' is enabled in report, framework will call this method
-	every time the report is refreshed or a filter is updated. It
-	accepts the same filters as normal execute. But a utility method -
-	get_latest_sync, is also imported.
-
-	"""
-	from frappe.database.duckdb.database import get_latest_sync
-
-	columns, data = [], []
-	return columns, data

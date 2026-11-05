@@ -1,6 +1,6 @@
 {
  "actions": [],
- "allow_rename": 1,
+ "allow_rename": 0,
  "autoname": "naming_series:naming_series",
  "creation": "2026-08-01 04:29:43.009956",
  "doctype": "DocType",
@@ -17,26 +17,31 @@
   "stock_value",
   "qty_after_transaction",
   "stock_value_after_transaction",
-  "naming_series"
+  "naming_series",
+  "valuation_method",
+  "reversal_of"
  ],
  "fields": [
   {
    "fieldname": "section_break_novv",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "read_only": 1
   },
   {
    "fieldname": "posting_date",
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Posting Date",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "posting_time",
    "fieldtype": "Time",
    "in_list_view": 1,
    "label": "Posting Time",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "item",
@@ -44,7 +49,8 @@
    "in_list_view": 1,
    "label": "Item",
    "options": "Item",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "warehouse",
@@ -52,34 +58,40 @@
    "in_list_view": 1,
    "label": "Warehouse",
    "options": "Warehouse",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "actual_quantity",
    "fieldtype": "Float",
    "label": "Actual Quantity",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "valuation_rate",
    "fieldtype": "Currency",
-   "label": "Valuation Rate"
+   "label": "Valuation Rate",
+   "read_only": 1
   },
   {
    "fieldname": "stock_value",
    "fieldtype": "Currency",
-   "label": "Stock Value"
+   "label": "Stock Value",
+   "read_only": 1
   },
   {
    "fieldname": "qty_after_transaction",
-   "fieldtype": "Data",
-   "label": "Qty After Transaction"
+   "fieldtype": "Float",
+   "label": "Qty After Transaction",
+   "read_only": 1
   },
   {
    "fieldname": "stock_entry",
    "fieldtype": "Link",
    "label": "Stock Entry",
-   "options": "Stock Entry"
+   "options": "Stock Entry",
+   "read_only": 1
   },
   {
    "default": "SLE.-.YYYY.-.###",
@@ -87,18 +99,35 @@
    "fieldtype": "Select",
    "hidden": 1,
    "label": "Naming Series",
-   "options": "SLE.-.YYYY.-.###"
+   "options": "SLE.-.YYYY.-.###",
+   "read_only": 1
   },
   {
    "fieldname": "stock_value_after_transaction",
+   "fieldtype": "Currency",
+   "label": "Stock Value After Transaction",
+   "read_only": 1
+  },
+  {
+   "fieldname": "valuation_method",
    "fieldtype": "Data",
-   "label": "Stock Value After Transaction"
+   "label": "Valuation Method",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_of",
+   "fieldtype": "Link",
+   "options": "Stock Ledger Entry",
+   "label": "Reversal Of",
+   "read_only": 1,
+   "unique": 1,
+   "no_copy": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-02 03:12:16.360098",
+ "modified": "2026-11-05 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Ledger Entry",
@@ -106,16 +135,12 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
-   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
+   "role": "System Manager"
   }
  ],
  "row_format": "Dynamic",

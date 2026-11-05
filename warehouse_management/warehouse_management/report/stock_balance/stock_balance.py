@@ -2,18 +2,21 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import getdate, today
 
 
 def execute(filters=None):
-	filters = filters or {}
+	filters = dict(filters or {})
+	filters["as_of_date"] = getdate(filters.get("as_of_date") or today())
 
 	columns = get_columns()
 	data = get_data(filters)
 
 	return columns, data
 
+
 def get_columns():
-	return[
+	return [
 		{
 			"label": "Item",
 			"fieldname": "item",
@@ -28,12 +31,7 @@ def get_columns():
 			"options": "Warehouse",
 			"width": 150,
 		},
-		{
-			"label": "Quantity",
-			"fieldname": "quantity",
-			"fieldtype": "Float",
-			"width": 100
-		},
+		{"label": "Quantity", "fieldname": "quantity", "fieldtype": "Float", "width": 100},
 		{
 			"label": "Stock Value",
 			"fieldname": "stock_value",
@@ -48,21 +46,18 @@ def get_columns():
 		},
 	]
 
-def get_data(filters):
-	conditions = [
-		"posting_date <= %(as_of_date)s"
-	]
 
-	values = {
-		"as_of_date": filters.get("as_of_date")
-	}
+def get_data(filters):
+	conditions = ["posting_date <= %(as_of_date)s"]
+
+	values = {"as_of_date": filters.get("as_of_date")}
 
 	if filters.get("item"):
 		conditions.append("item = %(item)s")
 		values["item"] = filters["item"]
 
 	if filters.get("warehouse"):
-		conditions.append("item = %(item)s")
+		conditions.append("warehouse = %(warehouse)s")
 		values["warehouse"] = filters["warehouse"]
 
 	where_clause = " AND ".join(conditions)
@@ -85,23 +80,8 @@ def get_data(filters):
 
 	for row in result:
 		if row.quantity:
-			row.valuation_rate = row.stock_value/row.quantity
+			row.valuation_rate = row.stock_value / row.quantity
 		else:
 			row.valuation_rate = 0
 
 	return result
-
-def execute_snapshot_report(filters: dict | None = None):
-	"""Return columns and data for the report.
-
-	This is the main entry point for snapshot report. When 'Synced
-	Report' is enabled in report, framework will call this method
-	every time the report is refreshed or a filter is updated. It
-	accepts the same filters as normal execute. But a utility method -
-	get_latest_sync, is also imported.
-
-	"""
-	from frappe.database.duckdb.database import get_latest_sync
-
-	columns, data = [], []
-	return columns, data

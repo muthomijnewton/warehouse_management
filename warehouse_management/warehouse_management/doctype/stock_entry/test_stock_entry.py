@@ -7,7 +7,6 @@ from frappe.utils import today
 
 
 class TestStockEntry(FrappeTestCase):
-
 	def setUp(self):
 		self.item = self.get_item()
 
@@ -42,46 +41,52 @@ class TestStockEntry(FrappeTestCase):
 		frappe.db.commit()
 
 	def get_item(self):
+		if not frappe.db.exists("UOM", "Piece"):
+			frappe.get_doc({"doctype": "UOM", "unit_name": "Piece"}).insert(ignore_permissions=True)
 		if frappe.db.exists("Item", "TEST-LAP001"):
 			return "TEST-LAP001"
 
-		item = frappe.get_doc({
-			"doctype": "Item",
-			"item_code": "TEST-LAP001",
-			"item_name": "Test Laptop",
-			"unit": "Piece",
-			"standard_cost": 20000,
-		})
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": "TEST-LAP001",
+				"item_name": "Test Laptop",
+				"unit": "Piece",
+				"standard_cost": 20000,
+			}
+		)
 
 		item.insert(ignore_permissions=True)
 
 		return item.name
 
 	def set_item_valuation_method(self, method):
-			frappe.db.set_value(
-					"Item",
-					self.item,
-					"valuation_method",
-					method,
-			)
+		frappe.db.set_value(
+			"Item",
+			self.item,
+			"valuation_method",
+			method,
+		)
 
 	def set_global_valuation_method(self, method):
-			frappe.db.set_single_value(
-					"Warehouse Settings",
-					"default_valuation_method",
-					method,
-			)
+		frappe.db.set_single_value(
+			"Warehouse Settings",
+			"default_valuation_method",
+			method,
+		)
 
 	def get_warehouse(self, name, code):
 		if frappe.db.exists("Warehouse", name):
 			return name
 
-		warehouse = frappe.get_doc({
-			"doctype": "Warehouse",
-			"warehouse_name": name,
-			"warehouse_code": code,
-			"is_group": 0,
-		})
+		warehouse = frappe.get_doc(
+			{
+				"doctype": "Warehouse",
+				"warehouse_name": name,
+				"warehouse_code": code,
+				"is_group": 0,
+			}
+		)
 
 		warehouse.insert(ignore_permissions=True)
 
@@ -95,18 +100,22 @@ class TestStockEntry(FrappeTestCase):
 		target_warehouse=None,
 		rate=20000,
 	):
-		return frappe.get_doc({
-			"doctype": "Stock Entry",
-			"posting_date": today(),
-			"purpose": purpose,
-			"items": [{
-				"item": self.item,
-				"quantity": quantity,
-				"rate": rate,
-				"source_warehouse": source_warehouse,
-				"target_warehouse": target_warehouse,
-			}],
-		})
+		return frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"posting_date": today(),
+				"purpose": purpose,
+				"items": [
+					{
+						"item": self.item,
+						"quantity": quantity,
+						"rate": rate,
+						"source_warehouse": source_warehouse,
+						"target_warehouse": target_warehouse,
+					}
+				],
+			}
+		)
 
 	def get_balance(self, warehouse):
 		return self.get_stock_balance(
@@ -211,18 +220,14 @@ class TestStockEntry(FrappeTestCase):
 		entry.insert(ignore_permissions=True)
 		entry.submit()
 
-		qty_before_cancel, value_before_cancel = self.get_balance(
-			self.shelf_a
-		)
+		qty_before_cancel, value_before_cancel = self.get_balance(self.shelf_a)
 
 		self.assertEqual(qty_before_cancel, 30)
 		self.assertEqual(value_before_cancel, 600_000)
 
 		entry.cancel()
 
-		qty_after_cancel, value_after_cancel = self.get_balance(
-			self.shelf_a
-		)
+		qty_after_cancel, value_after_cancel = self.get_balance(self.shelf_a)
 
 		self.assertEqual(qty_after_cancel, 0)
 		self.assertEqual(value_after_cancel, 0)
@@ -247,18 +252,14 @@ class TestStockEntry(FrappeTestCase):
 		consume.insert(ignore_permissions=True)
 		consume.submit()
 
-		qty_after_consume, value_after_consume = self.get_balance(
-			self.shelf_a
-		)
+		qty_after_consume, value_after_consume = self.get_balance(self.shelf_a)
 
 		self.assertEqual(qty_after_consume, 30)
 		self.assertEqual(value_after_consume, 600_000)
 
 		consume.cancel()
 
-		qty_after_cancel, value_after_cancel = self.get_balance(
-			self.shelf_a
-		)
+		qty_after_cancel, value_after_cancel = self.get_balance(self.shelf_a)
 
 		self.assertEqual(qty_after_cancel, 50)
 		self.assertEqual(value_after_cancel, 1_000_000)
@@ -381,13 +382,13 @@ class TestStockEntry(FrappeTestCase):
 		)
 
 		second_receipt.insert(ignore_permissions=True)
-		second_receipt.submit()	
+		second_receipt.submit()
 
 		consume = self.create_stock_entry(
 			purpose="Consume",
 			quantity=4,
 			source_warehouse=self.shelf_a,
-		)	
+		)
 
 		consume.insert(ignore_permissions=True)
 		consume.submit()
@@ -398,7 +399,6 @@ class TestStockEntry(FrappeTestCase):
 		self.assertEqual(value, 420_000)
 
 	def test_fifo_transfer(self):
-
 		self.set_item_valuation_method("FIFO")
 
 		first_receipt = self.create_stock_entry(
@@ -432,13 +432,9 @@ class TestStockEntry(FrappeTestCase):
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
-		source_qty, source_value = self.get_balance(
-			self.shelf_a
-		)
+		source_qty, source_value = self.get_balance(self.shelf_a)
 
-		target_qty, target_value = self.get_balance(
-			self.shelf_b
-		)
+		target_qty, target_value = self.get_balance(self.shelf_b)
 
 		self.assertEqual(source_qty, 8)
 		self.assertEqual(source_value, 240000)
@@ -495,13 +491,9 @@ class TestStockEntry(FrappeTestCase):
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
-		source_qty, source_value = self.get_balance(
-			self.shelf_a
-		)
+		source_qty, source_value = self.get_balance(self.shelf_a)
 
-		target_qty, target_value = self.get_balance(
-			self.shelf_b
-		)
+		target_qty, target_value = self.get_balance(self.shelf_b)
 
 		self.assertEqual(source_qty, 8)
 		self.assertEqual(source_value, 240000)
@@ -541,7 +533,10 @@ class TestStockEntry(FrappeTestCase):
 			consume.name,
 		)
 
-		self.assertEqual(len(saved_consume.stock_entry_allocations), 2,)
+		self.assertEqual(
+			len(saved_consume.stock_entry_allocations),
+			2,
+		)
 
 		allocation_a = saved_consume.stock_entry_allocations[0]
 		allocation_b = saved_consume.stock_entry_allocations[1]
@@ -590,7 +585,10 @@ class TestStockEntry(FrappeTestCase):
 			transfer.name,
 		)
 
-		self.assertEqual(len(saved_transfer.stock_entry_allocations), 2,)
+		self.assertEqual(
+			len(saved_transfer.stock_entry_allocations),
+			2,
+		)
 
 		allocation_a = saved_transfer.stock_entry_allocations[0]
 		allocation_b = saved_transfer.stock_entry_allocations[1]
@@ -710,22 +708,18 @@ class TestStockEntry(FrappeTestCase):
 		transfer.insert(ignore_permissions=True)
 		transfer.submit()
 
-		source_qty, source_value = self.get_balance(
-			self.shelf_a
-		)
+		source_qty, source_value = self.get_balance(self.shelf_a)
 
-		target_qty, target_value = self.get_balance(
-			self.shelf_b
-		)
+		target_qty, target_value = self.get_balance(self.shelf_b)
 
 		# LIFO transfer:
 		#
-		# 10 × 30,000 = 300,000
-		#  2 × 20,000 =  40,000
+		# 10 * 30,000 = 300,000
+		#  2 * 20,000 =  40,000
 		# Total transferred = 340,000
 		#
 		# Shelf A is left with:
-		# 8 × 20,000 = 160,000
+		# 8 * 20,000 = 160,000
 
 		self.assertEqual(source_qty, 8)
 		self.assertEqual(source_value, 160000)
@@ -764,7 +758,10 @@ class TestStockEntry(FrappeTestCase):
 			consume.name,
 		)
 
-		self.assertEqual(len(saved_consume.stock_entry_allocations), 1,)
+		self.assertEqual(
+			len(saved_consume.stock_entry_allocations),
+			1,
+		)
 
 		allocation = saved_consume.stock_entry_allocations[0]
 
@@ -806,7 +803,10 @@ class TestStockEntry(FrappeTestCase):
 			transfer.name,
 		)
 
-		self.assertEqual(len(saved_transfer.stock_entry_allocations), 1,)
+		self.assertEqual(
+			len(saved_transfer.stock_entry_allocations),
+			1,
+		)
 
 		allocation = saved_transfer.stock_entry_allocations[0]
 
@@ -847,7 +847,8 @@ class TestStockEntry(FrappeTestCase):
 		test_layers = [
 			layer
 			for layer in layers
-			if layer["stock_entry"] in {
+			if layer["stock_entry"]
+			in {
 				first_receipt.name,
 				second_receipt.name,
 			}
@@ -868,7 +869,7 @@ class TestStockEntry(FrappeTestCase):
 		)
 		self.assertEqual(test_layers[1]["quantity"], 20)
 		self.assertEqual(test_layers[1]["rate"], 25000)
-			
+
 	def test_fifo_consumption_tracks_stock_entry_layers(self):
 		first_receipt = self.create_stock_entry(
 			purpose="Receipt",
@@ -902,9 +903,7 @@ class TestStockEntry(FrappeTestCase):
 		self.set_item_valuation_method("FIFO")
 		consume.insert(ignore_permissions=True)
 
-		valuation = consume.calculate_consume_fifo_valuation(
-			consume.items[0]
-		)
+		valuation = consume.calculate_consume_fifo_valuation(consume.items[0])
 
 		consumed_layers = valuation["consumed_layers"]
 
@@ -942,151 +941,152 @@ class TestStockEntry(FrappeTestCase):
 		)
 
 	def test_global_fifo_when_item_method_is_blank(self):
-			self.set_global_valuation_method("FIFO")
-			self.set_item_valuation_method(None)
+		self.set_global_valuation_method("FIFO")
+		self.set_item_valuation_method(None)
 
-			stock_entry = self.create_stock_entry(
-					purpose="Receipt",
-					quantity=1,
-					target_warehouse=self.shelf_a,
-			)
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
 
-			self.assertEqual(
-					stock_entry.get_valuation_method(self.item),
-					"FIFO",
-			)
-			
+		self.assertEqual(
+			stock_entry.get_valuation_method(self.item),
+			"FIFO",
+		)
+
 	def test_global_lifo_when_item_method_is_blank(self):
-			self.set_global_valuation_method("LIFO")
-			self.set_item_valuation_method(None)
+		self.set_global_valuation_method("LIFO")
+		self.set_item_valuation_method(None)
 
-			stock_entry = self.create_stock_entry(
-					purpose="Receipt",
-					quantity=1,
-					target_warehouse=self.shelf_a,
-			)
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
 
-			self.assertEqual(
-					stock_entry.get_valuation_method(self.item),
-					"LIFO",
-			)
+		self.assertEqual(
+			stock_entry.get_valuation_method(self.item),
+			"LIFO",
+		)
 
 	def test_item_lifo_overrides_global_fifo(self):
-			self.set_global_valuation_method("FIFO")
-			self.set_item_valuation_method("LIFO")
+		self.set_global_valuation_method("FIFO")
+		self.set_item_valuation_method("LIFO")
 
-			stock_entry = self.create_stock_entry(
-					purpose="Receipt",
-					quantity=1,
-					target_warehouse=self.shelf_a,
-			)
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
 
-			self.assertEqual(
-					stock_entry.get_valuation_method(self.item),
-					"LIFO",
-			)
-			
+		self.assertEqual(
+			stock_entry.get_valuation_method(self.item),
+			"LIFO",
+		)
+
 	def test_item_fifo_overrides_global_lifo(self):
-			self.set_global_valuation_method("LIFO")
-			self.set_item_valuation_method("FIFO")
+		self.set_global_valuation_method("LIFO")
+		self.set_item_valuation_method("FIFO")
 
-			stock_entry = self.create_stock_entry(
-					purpose="Receipt",
-					quantity=1,
-					target_warehouse=self.shelf_a,
-			)
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
 
-			self.assertEqual(
-					stock_entry.get_valuation_method(self.item),
-					"FIFO",
-			)
+		self.assertEqual(
+			stock_entry.get_valuation_method(self.item),
+			"FIFO",
+		)
 
 	def test_global_fifo_is_persisted_on_stock_entry(self):
-					self.set_global_valuation_method("FIFO")
-					self.set_item_valuation_method(None)
+		self.set_global_valuation_method("FIFO")
+		self.set_item_valuation_method(None)
 
-					stock_entry = self.create_stock_entry(
-							purpose="Receipt",
-							quantity=1,
-							target_warehouse=self.shelf_a,
-					)
-					stock_entry.insert(ignore_permissions=True)
-					stock_entry.submit()
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
+		stock_entry.insert(ignore_permissions=True)
+		stock_entry.submit()
 
-					saved_stock_entry = frappe.get_doc(
-							"Stock Entry",
-							stock_entry.name,
-					)
+		saved_stock_entry = frappe.get_doc(
+			"Stock Entry",
+			stock_entry.name,
+		)
 
-					self.assertEqual(
-							saved_stock_entry.valuation_method_used,
-							"FIFO",
-					)
+		self.assertEqual(
+			saved_stock_entry.valuation_method_used,
+			"FIFO",
+		)
 
 	def test_global_lifo_is_persisted_on_stock_entry(self):
-					self.set_global_valuation_method("LIFO")
-					self.set_item_valuation_method(None)
+		self.set_global_valuation_method("LIFO")
+		self.set_item_valuation_method(None)
 
-					stock_entry = self.create_stock_entry(
-							purpose="Receipt",
-							quantity=1,
-							target_warehouse=self.shelf_a,
-					)
-					stock_entry.insert(ignore_permissions=True)
-					stock_entry.submit()
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
+		stock_entry.insert(ignore_permissions=True)
+		stock_entry.submit()
 
-					saved_stock_entry = frappe.get_doc(
-							"Stock Entry",
-							stock_entry.name,
-					)
+		saved_stock_entry = frappe.get_doc(
+			"Stock Entry",
+			stock_entry.name,
+		)
 
-					self.assertEqual(
-							saved_stock_entry.valuation_method_used,
-							"LIFO",
-					)
+		self.assertEqual(
+			saved_stock_entry.valuation_method_used,
+			"LIFO",
+		)
+
 	def test_item_lifo_is_persisted_on_stock_entry(self):
-					self.set_global_valuation_method("FIFO")
-					self.set_item_valuation_method("LIFO")
+		self.set_global_valuation_method("FIFO")
+		self.set_item_valuation_method("LIFO")
 
-					stock_entry = self.create_stock_entry(
-							purpose="Receipt",
-							quantity=1,
-							target_warehouse=self.shelf_a,
-					)
-					stock_entry.insert(ignore_permissions=True)
-					stock_entry.submit()
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
+		stock_entry.insert(ignore_permissions=True)
+		stock_entry.submit()
 
-					saved_stock_entry = frappe.get_doc(
-							"Stock Entry",
-							stock_entry.name,
-					)
+		saved_stock_entry = frappe.get_doc(
+			"Stock Entry",
+			stock_entry.name,
+		)
 
-					self.assertEqual(
-							saved_stock_entry.valuation_method_used,
-							"LIFO",
-					)
+		self.assertEqual(
+			saved_stock_entry.valuation_method_used,
+			"LIFO",
+		)
 
 	def test_item_fifo_is_persisted_on_stock_entry(self):
-					self.set_global_valuation_method("LIFO")
-					self.set_item_valuation_method("FIFO")
+		self.set_global_valuation_method("LIFO")
+		self.set_item_valuation_method("FIFO")
 
-					stock_entry = self.create_stock_entry(
-							purpose="Receipt",
-							quantity=1,
-							target_warehouse=self.shelf_a,
-					)
-					stock_entry.insert(ignore_permissions=True)
-					stock_entry.submit()
+		stock_entry = self.create_stock_entry(
+			purpose="Receipt",
+			quantity=1,
+			target_warehouse=self.shelf_a,
+		)
+		stock_entry.insert(ignore_permissions=True)
+		stock_entry.submit()
 
-					saved_stock_entry = frappe.get_doc(
-							"Stock Entry",
-							stock_entry.name,
-					)
+		saved_stock_entry = frappe.get_doc(
+			"Stock Entry",
+			stock_entry.name,
+		)
 
-					self.assertEqual(
-							saved_stock_entry.valuation_method_used,
-							"FIFO",
-					)
+		self.assertEqual(
+			saved_stock_entry.valuation_method_used,
+			"FIFO",
+		)
 
 	def test_lifo_transfer_after_previous_outgoing_movement(self):
 		for previous_purpose in ("Consume", "Transfer"):

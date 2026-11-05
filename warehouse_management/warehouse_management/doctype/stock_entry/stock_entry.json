@@ -45,7 +45,8 @@
    "fieldtype": "Time",
    "in_list_view": 1,
    "label": "Posting Time",
-   "reqd": 1
+   "reqd": 1,
+   "default": "Now"
   },
   {
    "fieldname": "purpose",
@@ -59,7 +60,8 @@
    "fieldname": "valuation_method_used",
    "fieldtype": "Data",
    "label": "Valuation Method Used",
-   "read_only": 1
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "items",
@@ -89,14 +91,15 @@
    "fieldtype": "Table",
    "label": "Stock Entry Allocations",
    "options": "Stock Entry Allocation",
-   "read_only": 1
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-14 08:31:14.208057",
+ "modified": "2026-11-05 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Stock Entry",
@@ -114,7 +117,9 @@
    "role": "System Manager",
    "share": 1,
    "submit": 1,
-   "write": 1
+   "write": 1,
+   "cancel": 1,
+   "amend": 1
   }
  ],
  "row_format": "Dynamic",
