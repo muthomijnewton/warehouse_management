@@ -2,7 +2,7 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Stock Balance"] = {
-	"filters": [
+	filters: [
 		{
 			fieldname: "as_of_date",
 			label: "As of Date",
@@ -12,7 +12,7 @@ frappe.query_reports["Stock Balance"] = {
 		},
 		{
 			fieldname: "item",
-			label: 'Item',
+			label: "Item",
 			fieldtype: "Link",
 			options: "Item",
 		},

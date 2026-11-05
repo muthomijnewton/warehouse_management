@@ -40,6 +40,16 @@ def prepare():
 	frappe.db.sql(
 		"ALTER TABLE `tabStock Ledger Entry` MODIFY qty_after_transaction VARCHAR(140), MODIFY stock_value_after_transaction VARCHAR(140)"
 	)
+	for field in ("qty_after_transaction", "stock_value_after_transaction"):
+		frappe.db.set_value(
+			"DocField", {"parent": "Stock Ledger Entry", "fieldname": field}, "fieldtype", "Data"
+		)
+	frappe.db.set_value(
+		"DocType",
+		"Stock Ledger Entry",
+		{"migration_hash": "legacy-smoke", "modified": "2026-01-01 00:00:00"},
+		update_modified=False,
+	)
 	frappe.db.sql("UPDATE `tabStock Ledger Entry` SET valuation_method = NULL WHERE item = %s", ITEM)
 	for patch in (
 		"warehouse_management.patches.validate_ledger_numbers",

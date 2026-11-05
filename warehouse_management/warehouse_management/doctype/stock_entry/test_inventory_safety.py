@@ -6,7 +6,7 @@ from threading import Barrier
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
+from frappe.utils import add_days, nowtime, today
 
 from warehouse_management.warehouse_management.doctype.stock_entry import test_stock_entry
 from warehouse_management.warehouse_management.report.stock_balance import stock_balance
@@ -185,8 +185,10 @@ class TestInventorySafety(FrappeTestCase):
 	def test_concurrent_withdrawals_cannot_overdraw(self):
 		self.submit_entry("Receipt", 10, 20)
 		drafts = []
+		posting_time = nowtime()
 		for _ in range(2):
 			entry = self.create_stock_entry("Consume", 7, source_warehouse=self.shelf_a)
+			entry.posting_time = posting_time
 			entry.insert(ignore_permissions=True)
 			drafts.append(entry.name)
 		frappe.db.commit()  # Independent worker connections must see fixtures and draft names.
@@ -205,14 +207,15 @@ class TestInventorySafety(FrappeTestCase):
 				entry.submit()
 				frappe.db.commit()
 				return "submitted"
-			except frappe.ValidationError:
+			except frappe.ValidationError as error:
 				frappe.db.rollback()
-				return "rejected"
+				return str(error)
 			finally:
 				frappe.destroy()
 
 		with ThreadPoolExecutor(max_workers=2) as pool:
 			results = list(pool.map(withdraw, drafts))
 		frappe.db.rollback()  # Discard the main connection's snapshot.
-		self.assertEqual(sorted(results), ["rejected", "submitted"])
+		self.assertEqual(results.count("submitted"), 1)
+		self.assertTrue(any("Not enough stock" in result for result in results), results)
 		self.assertEqual(tuple(self.get_balance(self.shelf_a)), (3, 60))
