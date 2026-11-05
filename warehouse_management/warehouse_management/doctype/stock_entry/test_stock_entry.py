@@ -1087,3 +1087,55 @@ class TestStockEntry(FrappeTestCase):
 							saved_stock_entry.valuation_method_used,
 							"FIFO",
 					)
+
+	def test_lifo_transfer_after_previous_outgoing_movement(self):
+		for previous_purpose in ("Consume", "Transfer"):
+			with self.subTest(previous_purpose=previous_purpose):
+				frappe.db.delete(
+					"Stock Ledger Entry",
+					{"item": self.item, "warehouse": ["in", [self.shelf_a, self.shelf_b]]},
+				)
+				self.set_item_valuation_method("LIFO")
+				receipts = []
+				for rate in (20000, 30000):
+					receipt = self.create_stock_entry(
+						purpose="Receipt",
+						quantity=10,
+						target_warehouse=self.shelf_a,
+						rate=rate,
+					)
+					receipt.insert(ignore_permissions=True)
+					receipt.submit()
+					receipts.append(receipt)
+
+				previous = self.create_stock_entry(
+					purpose=previous_purpose,
+					quantity=4,
+					source_warehouse=self.shelf_a,
+					target_warehouse=self.shelf_b if previous_purpose == "Transfer" else None,
+				)
+				previous.insert(ignore_permissions=True)
+				previous.submit()
+
+				transfer = self.create_stock_entry(
+					purpose="Transfer",
+					quantity=8,
+					source_warehouse=self.shelf_a,
+					target_warehouse=self.shelf_b,
+				)
+				transfer.insert(ignore_permissions=True)
+				transfer.submit()
+
+				self.assertEqual(tuple(self.get_balance(self.shelf_a)), (8, 160000))
+				expected_target = (12, 340000) if previous_purpose == "Transfer" else (8, 220000)
+				self.assertEqual(tuple(self.get_balance(self.shelf_b)), expected_target)
+
+				saved_transfer = frappe.get_doc("Stock Entry", transfer.name)
+				allocations = saved_transfer.stock_entry_allocations
+				self.assertEqual(len(allocations), 2)
+				self.assertEqual(allocations[0].stock_entry, receipts[1].name)
+				self.assertEqual(allocations[0].quantity, 6)
+				self.assertEqual(allocations[0].value, 180000)
+				self.assertEqual(allocations[1].stock_entry, receipts[0].name)
+				self.assertEqual(allocations[1].quantity, 2)
+				self.assertEqual(allocations[1].value, 40000)
