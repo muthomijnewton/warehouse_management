@@ -227,3 +227,10 @@ class TestInventorySafety(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			self.submit_entry("Consume", 1.000000001)
 		self.assertEqual(tuple(self.get_balance(self.shelf_a)), (1, 20))
+
+	def test_input_precision_cannot_create_zero_quantity_value(self):
+		for quantity, rate in ((0.0000000001, 100000), (1.0000000001, 20), (1, 0.0000000001)):
+			with self.subTest(quantity=quantity, rate=rate):
+				with self.assertRaises(frappe.ValidationError):
+					self.submit_entry("Receipt", quantity, rate)
+		self.assertEqual(tuple(self.get_balance(self.shelf_a)), (0, 0))

@@ -60,7 +60,7 @@ Create a Stock Entry, choose its purpose, set a posting date and time, and add i
 | Consume | Required | Empty | Ignored; cost comes from stock valuation |
 | Transfer | Required | Required, different from source | Ignored; value comes from source stock |
 
-Quantities must be positive and finite. Rates must be non-negative and finite. Disabled items and disabled warehouses cannot be used.
+Quantities must be positive and finite. Rates must be non-negative and finite. Both accept at most nine decimal places; finer input is rejected to avoid silently changing recorded quantities or receipt costs. Disabled items and disabled warehouses cannot be used.
 
 Submit the entry to create ledger movements. An entry can contain items with different valuation methods: each item row records its own method, and the header shows `Mixed (see items)`.
 

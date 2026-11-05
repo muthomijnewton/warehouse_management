@@ -29,8 +29,12 @@ class StockEntry(Document):
 		for row in self.items:
 			if not math.isfinite(flt(row.quantity)) or flt(row.quantity) <= 0:
 				frappe.throw(_("Row {0}: Quantity must be greater than zero and finite.").format(row.idx))
+			if flt(row.quantity) != flt(row.quantity, 9):
+				frappe.throw(_("Row {0}: Quantity must use at most nine decimal places.").format(row.idx))
 			if not math.isfinite(flt(row.rate)) or flt(row.rate) < 0:
 				frappe.throw(_("Row {0}: Rate must be non-negative and finite.").format(row.idx))
+			if flt(row.rate) != flt(row.rate, 9):
+				frappe.throw(_("Row {0}: Rate must use at most nine decimal places.").format(row.idx))
 			if self.purpose in ("Consume", "Transfer") and not row.source_warehouse:
 				frappe.throw(
 					_("Row {0}: Source Warehouse is required for {1}.").format(row.idx, self.purpose)

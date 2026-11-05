@@ -50,6 +50,6 @@ Example: receive 10 at 20, then 10 at 30. Cancel the latest receipt. The reversa
 
 - No historical valuation recalculation, valuation-method conversion, or automatic repair of legacy cancellations.
 - No lot, batch, serial-number, reservation, accounting journal, or currency-conversion model.
-- Ledger quantities and monetary fields use Frappe's numeric database fields, with nine decimal places in the supported MariaDB schema. Floating-point calculations may have small rounding differences; reconciliation should use the configured precision.
+- Ledger quantities and monetary fields use Frappe's numeric database fields, with nine decimal places in the supported MariaDB schema. User-entered quantities and rates with more than nine decimal places are rejected. Floating-point calculations may have small rounding differences; reconciliation should use the configured precision.
 - Balances and layers are reconstructed from ledger history. The migration adds lookup indexes, but a persistent balance/layer cache for large ledgers is not implemented.
 - Database administrators and trusted server code can bypass application protections. Use database access controls and backups as well.
