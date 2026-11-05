@@ -25,7 +25,7 @@ frappe.query_reports["Stock Ledger"] = {
 		{
 			fieldname: "warehouse",
 			label: "Warehouse",
-			fieldtype:"Link",
+			fieldtype: "Link",
 			options: "Warehouse",
 			reqd: 1,
 		},

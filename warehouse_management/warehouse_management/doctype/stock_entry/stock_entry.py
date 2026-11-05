@@ -1,8 +1,18 @@
 # Copyright (c) 2026, Newton Muthomi and contributors
 # For license information, please see license.txt
 
+import math
+
 import frappe
+from frappe import _
 from frappe.model.document import Document
+from frappe.utils import flt, get_datetime, now_datetime
+
+from warehouse_management.warehouse_management.doctype.stock_ledger_entry.stock_ledger_entry import (
+	LEDGER_WRITE_TOKEN,
+)
+
+METHODS = ("Moving Average", "FIFO", "LIFO")
 
 
 class StockEntry(Document):
@@ -12,385 +22,211 @@ class StockEntry(Document):
 		self.validate_items()
 
 	def validate_rows(self):
+		if self.purpose not in ("Receipt", "Consume", "Transfer"):
+			frappe.throw(_("Purpose must be Receipt, Consume, or Transfer."))
+		if not self.items:
+			frappe.throw(_("Add at least one item."))
 		for row in self.items:
-			if row.quantity <= 0:
+			if not math.isfinite(flt(row.quantity)) or flt(row.quantity) <= 0:
+				frappe.throw(_("Row {0}: Quantity must be greater than zero and finite.").format(row.idx))
+			if flt(row.quantity) != flt(row.quantity, 9):
+				frappe.throw(_("Row {0}: Quantity must use at most nine decimal places.").format(row.idx))
+			if not math.isfinite(flt(row.rate)) or flt(row.rate) < 0:
+				frappe.throw(_("Row {0}: Rate must be non-negative and finite.").format(row.idx))
+			if flt(row.rate) != flt(row.rate, 9):
+				frappe.throw(_("Row {0}: Rate must use at most nine decimal places.").format(row.idx))
+			if self.purpose in ("Consume", "Transfer") and not row.source_warehouse:
 				frappe.throw(
-					f'Row {row.idx}: Quantity must be greater than zero'
+					_("Row {0}: Source Warehouse is required for {1}.").format(row.idx, self.purpose)
 				)
-
-			if self.purpose == "Receipt":
-				if not row.target_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Target Warehouse is required for Receipt."
-					)
-
-				if row.source_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Source Warehouse should be empty for Receipt."
-					)
-
-			elif self.purpose == "Consume":
-				if not row.source_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Source Warehouse is required for Consume."
-					)
-
-				if row.target_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Target Warehouse should be empty for Consume."
-					)
-
-			elif self.purpose == "Transfer":
-				if not row.source_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Source Warehouse is required for Transfer."
-					)
-
-				if not row.target_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Target Warehouse is required for Transfer."
-					)
-
-				if row.source_warehouse == row.target_warehouse:
-					frappe.throw(
-						f"Row {row.idx}: Source and Target Warehouse cannot be the same."
-					)
+			if self.purpose in ("Receipt", "Transfer") and not row.target_warehouse:
+				frappe.throw(
+					_("Row {0}: Target Warehouse is required for {1}.").format(row.idx, self.purpose)
+				)
+			if self.purpose == "Receipt" and row.source_warehouse:
+				frappe.throw(_("Row {0}: Source Warehouse should be empty for Receipt.").format(row.idx))
+			if self.purpose == "Consume" and row.target_warehouse:
+				frappe.throw(_("Row {0}: Target Warehouse should be empty for Consume.").format(row.idx))
+			if self.purpose == "Transfer" and row.source_warehouse == row.target_warehouse:
+				frappe.throw(_("Row {0}: Source and Target Warehouse cannot be the same.").format(row.idx))
 
 	def validate_warehouses(self):
 		for row in self.items:
-			warehouses = []
-
-			if row.source_warehouse:
-				warehouses.append(row.source_warehouse)
-
-			if row.target_warehouse:
-				warehouses.append(row.target_warehouse)
-
-			for warehouse_name in warehouses:
-				warehouse = frappe.get_cached_doc(
-					"Warehouse",
-					warehouse_name
-				)
-
+			for name in {row.source_warehouse, row.target_warehouse} - {None, ""}:
+				warehouse = frappe.get_cached_doc("Warehouse", name)
 				if warehouse.is_group:
-					frappe.throw(
-						f"{warehouse.name} is a group warehouse. "
-						"Please select a child warehouse."
-					)
-
+					frappe.throw(_("{0} is a group warehouse. Please select a child warehouse.").format(name))
 				if warehouse.disabled:
-					frappe.throw(
-						f"Warehouse {warehouse.name} is disabled."
-					) 
+					frappe.throw(_("Warehouse {0} is disabled.").format(name))
 
 	def validate_items(self):
 		for row in self.items:
-			item = frappe.get_cached_doc(
-				"Item",
-				row.item
-			)
-
-			if item.disabled:
-				frappe.throw(
-					f"Item {item.name} is disabled."
-				)
+			if frappe.get_cached_doc("Item", row.item).disabled:
+				frappe.throw(_("Item {0} is disabled.").format(row.item))
 
 	def get_valuation_method(self, item):
-		item_method = frappe.db.get_value(
-			"Item",
+		method = frappe.db.get_value("Item", item, "valuation_method") or frappe.db.get_single_value(
+			"Warehouse Settings", "default_valuation_method"
+		)
+		if method not in METHODS:
+			frappe.throw(_("Set a supported valuation method on the Item or in Warehouse Settings."))
+		return method
+
+	def lock_items(self):
+		# Existing Item rows also protect empty warehouses. Hold locks until commit/rollback.
+		# Sorting prevents opposite-direction transfers acquiring locks in opposite orders.
+		for item in sorted({row.item for row in self.items}):
+			frappe.db.sql("SELECT name FROM `tabItem` WHERE name = %s FOR UPDATE", item)
+
+	def get_item_history(self, item):
+		# A locking read sees the latest committed rows after waiting for the Item lock,
+		# even when the transaction already has a repeatable-read snapshot.
+		return frappe.db.sql(
+			"""SELECT name, stock_entry, item, warehouse, actual_quantity, stock_value,
+				valuation_rate, valuation_method, posting_date, posting_time, creation, reversal_of
+			FROM `tabStock Ledger Entry` WHERE item = %s
+			ORDER BY posting_date, posting_time, creation, name FOR UPDATE""",
 			item,
-			"valuation_method",
+			as_dict=True,
 		)
 
-		if item_method:
-			return item_method
+	def validate_chronology(self, timestamp):
+		if timestamp > now_datetime():
+			frappe.throw(_("Future stock postings are not allowed."))
+		for item in sorted({row.item for row in self.items}):
+			history = self.get_item_history(item)
+			if history and timestamp < get_datetime(f"{history[-1].posting_date} {history[-1].posting_time}"):
+				frappe.throw(
+					_(
+						"Backdated stock postings are not allowed for item {0}. Use the latest posting time or later."
+					).format(item)
+				)
 
-		settings_method = frappe.db.get_single_value(
-			"Warehouse Settings",
-			"default_valuation_method",
-		)
-
-		if settings_method:
-			return settings_method
-
-		frappe.throw(
-			"No valuation method configured. "
-			"Set a valuation method on the Item or in Warehouse Settings."
-		)
+	def before_submit(self):
+		self.lock_items()
+		self.validate_chronology(get_datetime(f"{self.posting_date} {self.posting_time}"))
+		methods = set()
+		for row in self.items:
+			method = self.get_valuation_method(row.item)
+			history = self.get_item_history(row.item)
+			if any(not entry.valuation_method for entry in history):
+				frappe.throw(
+					_(
+						"Legacy stock history for item {0} needs a valuation audit. See the upgrade guide."
+					).format(row.item)
+				)
+			if any(entry.valuation_method != method for entry in history):
+				frappe.throw(
+					_("Cannot change valuation method for item {0} with stock history.").format(row.item)
+				)
+			row.valuation_method_used = method
+			methods.add(method)
+		self.valuation_method_used = next(iter(methods)) if len(methods) == 1 else "Mixed (see items)"
+		# Never accept client-supplied layer allocations.
+		self.set("stock_entry_allocations", [])
 
 	def on_submit(self):
-			if self.items:
-					valuation_method = self.get_valuation_method(
-							self.items[0].item
-					)
+		{"Receipt": self.handle_receipt, "Consume": self.handle_consume, "Transfer": self.handle_transfer}[
+			self.purpose
+		]()
+		self.update_child_table("stock_entry_allocations")
 
-					self.valuation_method_used = valuation_method
-					self.db_set(
-							"valuation_method_used",
-							valuation_method,
-					)
-
-			if self.purpose == 'Receipt':
-					self.handle_receipt()
-
-			elif self.purpose == 'Consume':
-					self.handle_consume()
-
-			elif self.purpose == 'Transfer':
-					self.handle_transfer()
+	def row_method(self, row):
+		return row.valuation_method_used or self.get_valuation_method(row.item)
 
 	def handle_receipt(self):
 		for row in self.items:
 			valuation = self.calculate_receipt_valuation(row)
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.target_warehouse,
-				qty=row.quantity,
-				valuation_rate=valuation["valuation_rate"],
-				movement_value=valuation["movement_value"],
-				qty_after_transaction=valuation["qty_after_transaction"],
-				stock_value_after_transaction=valuation["stock_value_after_transaction"],
+			self.post_movement(
+				row,
+				row.target_warehouse,
+				row.quantity,
+				valuation["movement_value"],
+				valuation["valuation_rate"],
 			)
 
 	def handle_consume(self):
 		for row in self.items:
-
-			valuation_method = self.get_valuation_method(row.item)
-
-			print(
-				f"\nCONSUME VALUATION METHOD:"
-				f"{valuation_method}"
+			method = self.row_method(row)
+			valuation = self.consume_valuation(row, method)
+			if method != "Moving Average":
+				self.create_stock_entry_allocations(row.item, valuation["consumed_layers"])
+			self.post_movement(
+				row,
+				row.source_warehouse,
+				-row.quantity,
+				valuation["movement_value"],
+				valuation["valuation_rate"],
 			)
-
-			if valuation_method == "Moving Average":
-				print(">>> Using Moving Average")
-				valuation = self.calculate_consume_valuation(row)
-
-			elif valuation_method == "FIFO":
-				print(">>> Using FIFO")
-				valuation = self.calculate_consume_fifo_valuation(row)
-
-			elif valuation_method == "LIFO":
-				print(">>> Using LIFO")
-				valuation = self.calculate_consume_lifo_valuation(row)
-
-			else:
-				frappe.throw(
-					f"Valuation method {valuation_method} is not yet implemented."
-				)
-
-			if valuation_method in ("FIFO", "LIFO"):
-				self.create_stock_entry_allocations(
-					item=row.item,
-					layers=valuation["consumed_layers"],
-				)
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.source_warehouse,
-				qty=-row.quantity,
-				valuation_rate=valuation["valuation_rate"],
-				movement_value=valuation["movement_value"],
-				qty_after_transaction=valuation["qty_after_transaction"],
-				stock_value_after_transaction=valuation[
-					"stock_value_after_transaction"
-				],
-			)
-
-	def get_fifo_layers(self, item, warehouse):
-		ledger_entries = frappe.db.sql(
-			"""
-			SELECT
-				actual_quantity,
-				valuation_rate,
-				stock_entry
-			FROM `tabStock Ledger Entry`
-			WHERE item = %s
-				AND warehouse = %s
-			ORDER BY posting_date, posting_time, creation
-			""",
-			(item, warehouse),
-			as_dict=True,
-		)
-
-		layers = []
-
-		for entry in ledger_entries:
-			qty = float(entry.actual_quantity)
-			rate = float(entry.valuation_rate or 0)
-
-			if qty > 0:
-				layers.append({
-					"stock_entry": entry.stock_entry,
-					"quantity": qty,
-					"rate": rate,
-				})
-
-			elif qty < 0:
-				qty_to_remove = abs(qty)
-
-				while qty_to_remove > 0 and layers:
-					layer = layers[0]
-
-					qty_from_layer = min(
-						layer["quantity"],
-						qty_to_remove,
-					)
-
-					layer["quantity"] -= qty_from_layer
-					qty_to_remove -= qty_from_layer
-
-					if layer["quantity"] <= 0:
-						layers.pop(0)
-
-				if qty_to_remove > 0:
-					frappe.throw(
-						f"Stock ledger is inconsistent for item {item} "
-						f"in warehouse {warehouse}."
-					)
-
-		return layers
 
 	def handle_transfer(self):
 		for row in self.items:
-
-			valuation_method = self.get_valuation_method(row.item)
-
-			print(
-				f"\nTRANSFER VALUATION METHOD:"
-				f"{valuation_method}"
-			)
-
-			if valuation_method == "Moving Average":
-				source_valuation, target_valuation = (
-					self.calculate_transfer_valuation(row)
-				)
-
-				# Remove stock from source warehouse
-				self.create_ledger_entry(
-					item=row.item,
-					warehouse=row.source_warehouse,
-					qty=-row.quantity,
-					valuation_rate=source_valuation["valuation_rate"],
-					movement_value=source_valuation["movement_value"],
-					qty_after_transaction=source_valuation[
-						"qty_after_transaction"
-					],
-					stock_value_after_transaction=source_valuation[
-						"stock_value_after_transaction"
-					],
-				)
-
-				# Add stock to target warehouse
-				self.create_ledger_entry(
-					item=row.item,
-					warehouse=row.target_warehouse,
-					qty=row.quantity,
-					valuation_rate=target_valuation["valuation_rate"],
-					movement_value=target_valuation["movement_value"],
-					qty_after_transaction=target_valuation[
-						"qty_after_transaction"
-					],
-					stock_value_after_transaction=target_valuation[
-						"stock_value_after_transaction"
-					],
-				)
-
-			elif valuation_method == "FIFO":
-				transfer = self.calculate_transfer_fifo_valuation(row)
-
-			elif valuation_method == "LIFO":
-				transfer = self.calculate_transfer_lifo_valuation(row)
-
+			method = self.row_method(row)
+			valuation = self.consume_valuation(row, method)
+			if method == "Moving Average":
+				layers = [
+					{
+						"quantity": row.quantity,
+						"rate": valuation["valuation_rate"],
+						"value": -valuation["movement_value"],
+					}
+				]
 			else:
-				frappe.throw(
-					f"Valuation method {valuation_method} "
-					"is not yet implemented."
+				layers = valuation["consumed_layers"]
+				self.create_stock_entry_allocations(row.item, layers)
+			for layer in layers:
+				self.post_movement(
+					row, row.source_warehouse, -layer["quantity"], -layer["value"], layer["rate"]
+				)
+				self.post_movement(
+					row, row.target_warehouse, layer["quantity"], layer["value"], layer["rate"]
 				)
 
-			if valuation_method in ["FIFO", "LIFO"]:
-				self.create_stock_entry_allocations(
-					item=row.item,
-					layers=transfer["layers"],
-				)
-
-				current_source_qty, current_source_value = (
-					self.get_stock_balance(
-						row.item,
-						row.source_warehouse,
-					)
-				)
-
-				current_target_qty, current_target_value = (
-					self.get_stock_balance(
-						row.item,
-						row.target_warehouse,
-					)
-				)
-
-				source_qty = current_source_qty
-				source_value = current_source_value
-
-				target_qty = current_target_qty
-				target_value = current_target_value
-
-				for layer in transfer["layers"]:
-					qty = layer["quantity"]
-					rate = layer["rate"]
-					value = layer["value"]
-
-					source_qty -= qty
-					source_value -= value
-
-					self.create_ledger_entry(
-						item=row.item,
-						warehouse=row.source_warehouse,
-						qty=-qty,
-						valuation_rate=rate,
-						movement_value=-value,
-						qty_after_transaction=source_qty,
-						stock_value_after_transaction=source_value,
-					)
-
-					target_qty += qty
-					target_value += value
-
-					self.create_ledger_entry(
-						item=row.item,
-						warehouse=row.target_warehouse,
-						qty=qty,
-						valuation_rate=rate,
-						movement_value=value,
-						qty_after_transaction=target_qty,
-						stock_value_after_transaction=target_value,
-					)
-
-	def create_ledger_entry(
-			self,
-			item,
+	def post_movement(self, row, warehouse, qty, value, rate, reversal_of=None, timestamp=None):
+		balance_qty, balance_value = self.get_stock_balance(row.item, warehouse)
+		new_qty, new_value = flt(balance_qty + flt(qty), 9), balance_value + flt(value)
+		if new_qty < 0:
+			frappe.throw(_("Not enough stock for item {0} in warehouse {1}.").format(row.item, warehouse))
+		self.create_ledger_entry(
+			row.item,
 			warehouse,
 			qty,
-			valuation_rate,
-			movement_value,
-			qty_after_transaction,
-			stock_value_after_transaction,
+			rate,
+			value,
+			new_qty,
+			new_value,
+			valuation_method=self.row_method(row),
+			reversal_of=reversal_of,
+			timestamp=timestamp,
+		)
+
+	def create_ledger_entry(
+		self,
+		item,
+		warehouse,
+		qty,
+		valuation_rate,
+		movement_value,
+		qty_after_transaction,
+		stock_value_after_transaction,
+		valuation_method=None,
+		reversal_of=None,
+		timestamp=None,
 	):
 		ledger = frappe.new_doc("Stock Ledger Entry")
-
-		ledger.posting_date = self.posting_date
-		ledger.posting_time = self.posting_time
+		ledger.posting_date = timestamp.date() if timestamp else self.posting_date
+		ledger.posting_time = timestamp.time() if timestamp else self.posting_time
 		ledger.item = item
 		ledger.warehouse = warehouse
 		ledger.stock_entry = self.name
-
 		ledger.actual_quantity = qty
 		ledger.valuation_rate = valuation_rate
 		ledger.stock_value = movement_value
-
 		ledger.qty_after_transaction = qty_after_transaction
 		ledger.stock_value_after_transaction = stock_value_after_transaction
-
+		ledger.valuation_method = valuation_method or self.get_valuation_method(item)
+		ledger.reversal_of = reversal_of
+		ledger.flags.stock_write_token = LEDGER_WRITE_TOKEN
 		ledger.insert(ignore_permissions=True)
 
 	def create_stock_entry_allocations(self, item, layers):
@@ -406,529 +242,153 @@ class StockEntry(Document):
 				},
 			)
 
-		self.update_child_table(
-			"stock_entry_allocations",
-		)
-
 	def get_stock_balance(self, item, warehouse):
-		result = frappe.db.sql(
-			"""
-			SELECT
-				COALESCE(SUM(actual_quantity), 0),
-				COALESCE(SUM(stock_value), 0)
-			FROM `tabStock Ledger Entry`
-			WHERE item = %s
-				AND warehouse = %s
-			""",
-			(item, warehouse),
-		)
-
-		quantity, value = result[0]
-
-		return quantity, value
+		entries = [entry for entry in self.get_item_history(item) if entry.warehouse == warehouse]
+		return sum(flt(e.actual_quantity) for e in entries), sum(flt(e.stock_value) for e in entries)
 
 	def get_valuation_rate(self, item, warehouse):
-		quantity, value = self.get_stock_balance(item, warehouse)
+		qty, value = self.get_stock_balance(item, warehouse)
+		return value / qty if qty > 0 else 0
 
-		if quantity <= 0:
-			return 0
+	def get_fifo_layers(self, item, warehouse):
+		return self.get_stock_layers(item, warehouse)
 
-		return value/quantity
+	def get_lifo_layers(self, item, warehouse):
+		return self.get_stock_layers(item, warehouse, lifo=True)
+
+	def get_stock_layers(self, item, warehouse, lifo=False):
+		history = self.get_item_history(item)
+		reversed_names = {entry.reversal_of for entry in history if entry.reversal_of}
+		layers = []
+		for entry in history:
+			if entry.warehouse != warehouse or entry.reversal_of or entry.name in reversed_names:
+				continue
+			qty = flt(entry.actual_quantity)
+			if qty > 0:
+				layers.append(
+					{"stock_entry": entry.stock_entry, "quantity": qty, "rate": flt(entry.stock_value) / qty}
+				)
+			else:
+				remaining = -qty
+				while flt(remaining, 9) > 0 and layers:
+					layer = layers[-1] if lifo else layers[0]
+					take = min(layer["quantity"], remaining)
+					layer["quantity"] -= take
+					remaining -= take
+					if flt(layer["quantity"], 9) <= 0:
+						layers.pop(-1 if lifo else 0)
+				if flt(remaining, 9) > 0:
+					frappe.throw(
+						_("Stock ledger is inconsistent for item {0} in warehouse {1}.").format(
+							item, warehouse
+						)
+					)
+		return layers
 
 	def calculate_receipt_valuation(self, row):
-		current_qty, current_value = self.get_stock_balance(
-			row.item,
-			row.target_warehouse,
-		)
-
-		new_qty = current_qty + row.quantity
-		movement_value = row.quantity * row.rate
-		new_value = current_value + movement_value
-
-		valuation_method = self.get_valuation_method(row.item)
-
-		if valuation_method in ["FIFO", "LIFO"]:
-			new_rate = row.rate
-
-		else:
-			if new_qty:
-				new_rate = new_value / new_qty
-			else:
-				new_rate = 0
-
+		qty, value = self.get_stock_balance(row.item, row.target_warehouse)
+		movement = flt(row.quantity) * flt(row.rate)
+		new_qty, new_value = qty + row.quantity, value + movement
+		rate = flt(row.rate) if self.row_method(row) != "Moving Average" else new_value / new_qty
 		return {
 			"qty_after_transaction": new_qty,
 			"stock_value_after_transaction": new_value,
-			"valuation_rate": new_rate,
-			"movement_value": movement_value,
+			"valuation_rate": rate,
+			"movement_value": movement,
+		}
+
+	def consume_valuation(self, row, method):
+		qty, value = self.get_stock_balance(row.item, row.source_warehouse)
+		if flt(qty - row.quantity, 9) < 0:
+			frappe.throw(
+				_("Not enough stock for item {0} in warehouse {1}.").format(row.item, row.source_warehouse)
+			)
+		consumed = []
+		if method == "Moving Average":
+			issued = row.quantity * (value / qty)
+		else:
+			layers = self.get_stock_layers(row.item, row.source_warehouse, lifo=method == "LIFO")
+			remaining = row.quantity
+			for layer in reversed(layers) if method == "LIFO" else layers:
+				take = min(layer["quantity"], remaining)
+				if take > 0:
+					consumed.append({**layer, "quantity": take, "value": take * layer["rate"]})
+					remaining -= take
+				if flt(remaining, 9) <= 0:
+					break
+			if flt(remaining, 9) > 0:
+				frappe.throw(_("Stock ledger is inconsistent for item {0}.").format(row.item))
+			issued = sum(layer["value"] for layer in consumed)
+		return {
+			"valuation_rate": issued / row.quantity,
+			"movement_value": -issued,
+			"qty_after_transaction": qty - row.quantity,
+			"stock_value_after_transaction": value - issued,
+			"consumed_layers": consumed,
 		}
 
 	def calculate_consume_valuation(self, row):
-		current_qty, current_value = self.get_stock_balance(
-			row.item,
-			row.source_warehouse,
-		)
-
-		if current_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} in warehouse {row.source_warehouse}"
-			)
-
-		valuation_rate = self.get_valuation_rate(
-			row.item,
-			row.source_warehouse,
-		)
-
-		new_qty = current_qty - row.quantity
-
-		issued_value = row.quantity*valuation_rate
-
-		new_value = current_value - issued_value
-
-		return {
-			"valuation_rate": valuation_rate,
-			"movement_value": -issued_value,
-			"qty_after_transaction": new_qty,
-			"stock_value_after_transaction": new_value,
-		}
+		return self.consume_valuation(row, "Moving Average")
 
 	def calculate_consume_fifo_valuation(self, row):
-		current_qty, current_value = self.get_stock_balance(
-			row.item,
-			row.source_warehouse,
-		)
-
-		if current_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} "
-				f"in warehouse {row.source_warehouse}"
-			)
-
-		layers = self.get_fifo_layers(
-			row.item,
-			row.source_warehouse,
-		)
-
-		remaining_qty = row.quantity
-		issued_value = 0
-		consumed_layers = []
-
-		while remaining_qty > 0 and layers:
-			layer = layers[0]
-
-			qty_from_layer = min(
-				layer["quantity"],
-				remaining_qty,
-			)
-
-			issued_value += qty_from_layer * layer["rate"]
-
-			consumed_layers.append({
-				"stock_entry": layer["stock_entry"],
-				"quantity": qty_from_layer,
-				"rate": layer["rate"],
-				"value": qty_from_layer * layer["rate"],
-			})
-
-			layer["quantity"] -= qty_from_layer
-			remaining_qty -= qty_from_layer
-
-			if layer["quantity"] <= 0:
-				layers.pop(0)
-
-		if remaining_qty > 0:
-			frappe.throw(
-				f"Stock ledger is inconsistent for item {row.item} "
-				f"in warehouse {row.source_warehouse}."
-			)
-
-		valuation_rate = issued_value / row.quantity if row.quantity else 0
-
-		new_qty = current_qty - row.quantity
-		new_value = current_value - issued_value
-
-		return {
-			"valuation_rate": valuation_rate,
-			"movement_value": -issued_value,
-			"qty_after_transaction": new_qty,
-			"stock_value_after_transaction": new_value,
-			"consumed_layers": consumed_layers,
-		}
+		return self.consume_valuation(row, "FIFO")
 
 	def calculate_consume_lifo_valuation(self, row):
-		ledger_entries = frappe.db.sql(
-			"""
-			SELECT
-				actual_quantity,
-				valuation_rate,
-				stock_entry
-			FROM `tabStock Ledger Entry`
-			WHERE item = %s
-				AND warehouse = %s
-			ORDER BY posting_date, posting_time, creation
-			""",
-			(row.item, row.source_warehouse),
-			as_dict=True,
-		)
-
-		layers = []
-
-		for entry in ledger_entries:
-			qty = float(entry.actual_quantity)
-			rate = float(entry.valuation_rate or 0)
-
-			if qty > 0:
-				layers.append({
-					"stock_entry": entry.stock_entry,
-					"quantity": qty,
-					"rate": rate,
-				})
-
-			elif qty < 0:
-				qty_to_remove = abs(qty)
-
-				while qty_to_remove > 0 and layers:
-					layer = layers[-1]
-
-					qty_from_layer = min(
-						layer["quantity"],
-						qty_to_remove,
-					)
-
-					layer["quantity"] -= qty_from_layer
-					qty_to_remove -= qty_from_layer
-
-					if layer["quantity"] <= 0:
-						layers.pop()
-
-				if qty_to_remove > 0:
-					frappe.throw(
-						f"Stock ledger is inconsistent for item {row.item} "
-						f"in warehouse {row.source_warehouse}."
-					)
-
-		available_qty = sum(
-			layer["quantity"]
-			for layer in layers
-		)
-
-		if available_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} "
-				f"in warehouse {row.source_warehouse}"
-			)
-
-		qty_to_consume = row.quantity
-		issued_value = 0
-		consumed_layers = []
-
-		while qty_to_consume > 0:
-			layer = layers[-1]
-
-			qty_from_layer = min(
-				layer["quantity"],
-				qty_to_consume,
-			)
-
-			layer_value = qty_from_layer * layer["rate"]
-
-			issued_value += layer_value
-
-			consumed_layers.append({
-				"stock_entry": layer["stock_entry"],
-				"quantity": qty_from_layer,
-				"rate": layer["rate"],
-				"value": layer_value,
-			})
-
-			layer["quantity"] -= qty_from_layer
-			qty_to_consume -= qty_from_layer
-
-			if layer["quantity"] <= 0:
-				layers.pop()
-
-		current_qty, current_value = self.get_stock_balance(
-			row.item,
-			row.source_warehouse,
-		)
-
-		new_qty = current_qty - row.quantity
-		new_value = current_value - issued_value
-
-		valuation_rate = (
-			issued_value / row.quantity
-			if row.quantity
-			else 0
-		)
-
-		return {
-			"valuation_rate": valuation_rate,
-			"movement_value": -issued_value,
-			"qty_after_transaction": new_qty,
-			"stock_value_after_transaction": new_value,
-			"consumed_layers": consumed_layers,
-		}
+		return self.consume_valuation(row, "LIFO")
 
 	def calculate_transfer_fifo_valuation(self, row):
-		layers = self.get_fifo_layers(
-			row.item,
-			row.source_warehouse,
-		)
-
-		available_qty = sum(
-			layer["quantity"]
-			for layer in layers
-		)
-
-		if available_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} "
-				f"in warehouse {row.source_warehouse}"
-			)
-
-		qty_to_transfer = row.quantity
-		transfer_layers = []
-
-		for layer in layers:
-			if qty_to_transfer <= 0:
-				break
-
-			qty_from_layer = min(
-				layer["quantity"],
-				qty_to_transfer,
-			)
-
-			transfer_layers.append({
-				"stock_entry": layer["stock_entry"],
-				"quantity": qty_from_layer,
-				"rate": layer["rate"],
-				"value": qty_from_layer * layer["rate"],
-			})
-
-			qty_to_transfer -= qty_from_layer
-
-		total_value = sum(
-			layer["value"]
-			for layer in transfer_layers
-		)
-
-		return {
-			"layers": transfer_layers,
-			"total_value": total_value,
-		}
+		valuation = self.consume_valuation(row, "FIFO")
+		return {"layers": valuation["consumed_layers"], "total_value": -valuation["movement_value"]}
 
 	def calculate_transfer_lifo_valuation(self, row):
-		layers = self.get_fifo_layers(
-			row.item,
-			row.source_warehouse,
-		)
+		valuation = self.consume_valuation(row, "LIFO")
+		return {"layers": valuation["consumed_layers"], "total_value": -valuation["movement_value"]}
 
-		available_qty = sum(
-			layer["quantity"]
-			for layer in layers
-		)
-
-		if available_qty < row.quantity:
-			frappe.throw(
-				f"Not enough stock for item {row.item} "
-				f"in warehouse {row.source_warehouse}"
-			)
-
-		qty_to_transfer = row.quantity
-		transfer_layers = []
-
-		for layer in reversed(layers):
-			if qty_to_transfer <= 0:
-				break
-
-			qty_from_layer = min(
-				layer["quantity"],
-				qty_to_transfer,
-			)
-
-			transfer_layers.append({
-				"stock_entry": layer["stock_entry"],
-				"quantity": qty_from_layer,
-				"rate": layer["rate"],
-				"value": qty_from_layer * layer["rate"],
-			})
-
-			qty_to_transfer -= qty_from_layer
-
-		total_value = sum(
-			layer["value"]
-			for layer in transfer_layers
-		)
-
-		return {
-			"layers": transfer_layers,
-			"total_value": total_value,
-		}
-	
-	def calculate_transfer_receipt_valuation(self, row, valuation_rate):
-		current_qty, current_value = self.get_stock_balance(
-			row.item,
-			row.target_warehouse,
-		)
-
-		movement_value = row.quantity*valuation_rate
-
-		new_qty = current_qty + row.quantity
-		new_value = current_value + movement_value
-
-		return {
-			"qty_after_transaction": new_qty,
-			"stock_value_after_transaction": new_value,
-			"movement_value": movement_value,
-		}
-
-	def calculate_transfer_valuation(self, row):
-		source = self.calculate_consume_valuation(row)
-
-		target_qty, target_value = self.get_stock_balance(
-			row.item,
-			row.target_warehouse,
-		)
-
-		received_value = row.quantity*source["valuation_rate"]
-
-		new_qty = target_qty + row.quantity
-		new_value = target_value + received_value
-
-		if new_qty:
-			new_rate = new_value/new_qty
-		else:
-			new_rate = 0
-
-		target = {
-			"valuation_rate": new_rate,
-			"movement_value": received_value,
-			"qty_after_transaction": new_qty,
-			"stock_value_after_transaction": new_value,
-		}
-
-		return source, target
+	def before_cancel(self):
+		self.lock_items()
+		self.flags.ignore_links = True  # Ledger links remain as permanent audit records.
+		for item in {row.item for row in self.items}:
+			history = self.get_item_history(item)
+			reversed_names = {e.reversal_of for e in history if e.reversal_of}
+			active = [e for e in history if not e.reversal_of and e.name not in reversed_names]
+			if not active or active[-1].stock_entry != self.name:
+				frappe.throw(_("Cancel later stock entries for item {0} first.").format(item))
+			if any(not e.valuation_method for e in history):
+				frappe.throw(
+					_(
+						"Legacy stock history for item {0} needs a valuation audit. See the upgrade guide."
+					).format(item)
+				)
+		self.validate_chronology(now_datetime())
 
 	def on_cancel(self):
-		if self.purpose == 'Receipt':
-			self.cancel_receipt()
-
-		if self.purpose == 'Consume':
-			self.cancel_consume()
-
-		if self.purpose == 'Transfer':
-			self.cancel_transfer()
-
-	def cancel_receipt(self):
-		for row in self.items:
-			current_qty, current_value = self.get_stock_balance(
-				row.item,
-				row.target_warehouse,
+		# Reverse in reverse insertion order, preserving every original quantity and value.
+		entries = frappe.db.sql(
+			"""SELECT name, item, warehouse, actual_quantity, stock_value, valuation_rate, valuation_method
+			FROM `tabStock Ledger Entry` WHERE stock_entry = %s AND COALESCE(reversal_of, '') = ''
+			ORDER BY creation DESC, name DESC FOR UPDATE""",
+			self.name,
+			as_dict=True,
+		)
+		if not entries:
+			frappe.throw(_("Cannot cancel a stock entry without original ledger entries."))
+		timestamp = now_datetime()
+		for entry in entries:
+			row = frappe._dict(item=entry.item, valuation_method_used=entry.valuation_method)
+			self.post_movement(
+				row,
+				entry.warehouse,
+				-flt(entry.actual_quantity),
+				-flt(entry.stock_value),
+				entry.valuation_rate,
+				reversal_of=entry.name,
+				timestamp=timestamp,
 			)
 
-			valuation_rate = self.get_valuation_rate(
-				row.item,
-				row.target_warehouse,
-			)
+	def on_trash(self):
+		if frappe.db.exists("Stock Ledger Entry", {"stock_entry": self.name}):
+			frappe.throw(_("Stock entries with ledger history cannot be deleted."))
 
-			new_qty = current_qty - row.quantity
-			reversal_value = -(row.quantity*valuation_rate)
-			new_value = current_value + reversal_value
-
-			if new_qty < 0:
-				frappe.throw(
-					f"Cannot cancel receipt for item {row.item} in warehouse {row.target_warehouse}. "
-					"Not enough stock."
-				)
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.target_warehouse,
-				qty=-row.quantity,
-				valuation_rate=valuation_rate,
-				movement_value=reversal_value,
-				qty_after_transaction=new_qty,
-				stock_value_after_transaction=new_value,
-			)
-
-	def cancel_consume(self):
-		for row in self.items:
-			current_qty, current_value = self.get_stock_balance(
-				row.item,
-				row.source_warehouse,
-			)
-
-			valuation_rate = self.get_valuation_rate(
-				row.item,
-				row.source_warehouse,
-			)
-
-			new_qty = current_qty + row.quantity
-			reversal_value = row.quantity*valuation_rate
-			new_value = current_value + reversal_value
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.source_warehouse,
-				qty=row.quantity,
-				valuation_rate=valuation_rate,
-				movement_value=reversal_value,
-				qty_after_transaction=new_qty,
-				stock_value_after_transaction=new_value,
-			)
-
-	def cancel_transfer(self):
-		for row in self.items:
-			source_qty, source_value = self.get_stock_balance(
-				row.item,
-				row.source_warehouse,
-			)
-
-			source_valuation_rate = self.get_valuation_rate(
-				row.item,
-				row.source_warehouse,
-			)
-
-			new_source_qty = source_qty + row.quantity
-			reversal_source_value = row.quantity*source_valuation_rate
-			new_source_value = source_value + reversal_source_value
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.source_warehouse,
-				qty=row.quantity,
-				valuation_rate=source_valuation_rate,
-				movement_value=reversal_source_value,
-				qty_after_transaction=new_source_qty,
-				stock_value_after_transaction=new_source_value,
-			)
-
-			target_qty, target_value = self.get_stock_balance(
-				row.item,
-				row.target_warehouse,
-			)
-
-			target_valuation_rate = self.get_valuation_rate(
-				row.item,
-				row.target_warehouse,
-			)
-
-			new_target_qty = target_qty - row.quantity
-			target_movement_value = -(row.quantity*target_valuation_rate)
-			new_target_value = target_value + target_movement_value
-
-			if new_target_qty < 0:
-				frappe.throw(
-					f"Cannot cancel transfer for item {row.item} in warehouse {row.target_warehouse}. "
-					"Not enough stock."
-				)
-
-			self.create_ledger_entry(
-				item=row.item,
-				warehouse=row.target_warehouse,
-				qty=-row.quantity,
-				valuation_rate=target_valuation_rate,
-				movement_value=target_movement_value,
-				qty_after_transaction=new_target_qty,
-				stock_value_after_transaction=new_target_value,
-			)
+	def before_rename(self, old_name, new_name, merge=False):
+		if frappe.db.exists("Stock Ledger Entry", {"stock_entry": old_name}):
+			frappe.throw(_("Stock entries with ledger history cannot be renamed."))
