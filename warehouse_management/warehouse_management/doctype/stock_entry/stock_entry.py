@@ -199,6 +199,12 @@ class StockEntry(Document):
 			)
 
 	def get_fifo_layers(self, item, warehouse):
+		return self.get_stock_layers(item, warehouse, lifo=False)
+
+	def get_lifo_layers(self, item, warehouse):
+		return self.get_stock_layers(item, warehouse, lifo=True)
+
+	def get_stock_layers(self, item, warehouse, lifo=False):
 		ledger_entries = frappe.db.sql(
 			"""
 			SELECT
@@ -231,7 +237,7 @@ class StockEntry(Document):
 				qty_to_remove = abs(qty)
 
 				while qty_to_remove > 0 and layers:
-					layer = layers[0]
+					layer = layers[-1] if lifo else layers[0]
 
 					qty_from_layer = min(
 						layer["quantity"],
@@ -242,7 +248,7 @@ class StockEntry(Document):
 					qty_to_remove -= qty_from_layer
 
 					if layer["quantity"] <= 0:
-						layers.pop(0)
+						layers.pop(-1 if lifo else 0)
 
 				if qty_to_remove > 0:
 					frappe.throw(
@@ -556,56 +562,7 @@ class StockEntry(Document):
 		}
 
 	def calculate_consume_lifo_valuation(self, row):
-		ledger_entries = frappe.db.sql(
-			"""
-			SELECT
-				actual_quantity,
-				valuation_rate,
-				stock_entry
-			FROM `tabStock Ledger Entry`
-			WHERE item = %s
-				AND warehouse = %s
-			ORDER BY posting_date, posting_time, creation
-			""",
-			(row.item, row.source_warehouse),
-			as_dict=True,
-		)
-
-		layers = []
-
-		for entry in ledger_entries:
-			qty = float(entry.actual_quantity)
-			rate = float(entry.valuation_rate or 0)
-
-			if qty > 0:
-				layers.append({
-					"stock_entry": entry.stock_entry,
-					"quantity": qty,
-					"rate": rate,
-				})
-
-			elif qty < 0:
-				qty_to_remove = abs(qty)
-
-				while qty_to_remove > 0 and layers:
-					layer = layers[-1]
-
-					qty_from_layer = min(
-						layer["quantity"],
-						qty_to_remove,
-					)
-
-					layer["quantity"] -= qty_from_layer
-					qty_to_remove -= qty_from_layer
-
-					if layer["quantity"] <= 0:
-						layers.pop()
-
-				if qty_to_remove > 0:
-					frappe.throw(
-						f"Stock ledger is inconsistent for item {row.item} "
-						f"in warehouse {row.source_warehouse}."
-					)
+		layers = self.get_lifo_layers(row.item, row.source_warehouse)
 
 		available_qty = sum(
 			layer["quantity"]
@@ -718,7 +675,7 @@ class StockEntry(Document):
 		}
 
 	def calculate_transfer_lifo_valuation(self, row):
-		layers = self.get_fifo_layers(
+		layers = self.get_lifo_layers(
 			row.item,
 			row.source_warehouse,
 		)
