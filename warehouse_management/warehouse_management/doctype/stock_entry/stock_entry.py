@@ -4,6 +4,7 @@
 import math
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, get_datetime, now_datetime
 
@@ -22,45 +23,49 @@ class StockEntry(Document):
 
 	def validate_rows(self):
 		if self.purpose not in ("Receipt", "Consume", "Transfer"):
-			frappe.throw("Purpose must be Receipt, Consume, or Transfer.")
+			frappe.throw(_("Purpose must be Receipt, Consume, or Transfer."))
 		if not self.items:
-			frappe.throw("Add at least one item.")
+			frappe.throw(_("Add at least one item."))
 		for row in self.items:
 			if not math.isfinite(flt(row.quantity)) or flt(row.quantity) <= 0:
-				frappe.throw(f"Row {row.idx}: Quantity must be greater than zero and finite.")
+				frappe.throw(_("Row {0}: Quantity must be greater than zero and finite.").format(row.idx))
 			if not math.isfinite(flt(row.rate)) or flt(row.rate) < 0:
-				frappe.throw(f"Row {row.idx}: Rate must be non-negative and finite.")
+				frappe.throw(_("Row {0}: Rate must be non-negative and finite.").format(row.idx))
 			if self.purpose in ("Consume", "Transfer") and not row.source_warehouse:
-				frappe.throw(f"Row {row.idx}: Source Warehouse is required for {self.purpose}.")
+				frappe.throw(
+					_("Row {0}: Source Warehouse is required for {1}.").format(row.idx, self.purpose)
+				)
 			if self.purpose in ("Receipt", "Transfer") and not row.target_warehouse:
-				frappe.throw(f"Row {row.idx}: Target Warehouse is required for {self.purpose}.")
+				frappe.throw(
+					_("Row {0}: Target Warehouse is required for {1}.").format(row.idx, self.purpose)
+				)
 			if self.purpose == "Receipt" and row.source_warehouse:
-				frappe.throw(f"Row {row.idx}: Source Warehouse should be empty for Receipt.")
+				frappe.throw(_("Row {0}: Source Warehouse should be empty for Receipt.").format(row.idx))
 			if self.purpose == "Consume" and row.target_warehouse:
-				frappe.throw(f"Row {row.idx}: Target Warehouse should be empty for Consume.")
+				frappe.throw(_("Row {0}: Target Warehouse should be empty for Consume.").format(row.idx))
 			if self.purpose == "Transfer" and row.source_warehouse == row.target_warehouse:
-				frappe.throw(f"Row {row.idx}: Source and Target Warehouse cannot be the same.")
+				frappe.throw(_("Row {0}: Source and Target Warehouse cannot be the same.").format(row.idx))
 
 	def validate_warehouses(self):
 		for row in self.items:
 			for name in {row.source_warehouse, row.target_warehouse} - {None, ""}:
 				warehouse = frappe.get_cached_doc("Warehouse", name)
 				if warehouse.is_group:
-					frappe.throw(f"{name} is a group warehouse. Please select a child warehouse.")
+					frappe.throw(_("{0} is a group warehouse. Please select a child warehouse.").format(name))
 				if warehouse.disabled:
-					frappe.throw(f"Warehouse {name} is disabled.")
+					frappe.throw(_("Warehouse {0} is disabled.").format(name))
 
 	def validate_items(self):
 		for row in self.items:
 			if frappe.get_cached_doc("Item", row.item).disabled:
-				frappe.throw(f"Item {row.item} is disabled.")
+				frappe.throw(_("Item {0} is disabled.").format(row.item))
 
 	def get_valuation_method(self, item):
 		method = frappe.db.get_value("Item", item, "valuation_method") or frappe.db.get_single_value(
 			"Warehouse Settings", "default_valuation_method"
 		)
 		if method not in METHODS:
-			frappe.throw("Set a supported valuation method on the Item or in Warehouse Settings.")
+			frappe.throw(_("Set a supported valuation method on the Item or in Warehouse Settings."))
 		return method
 
 	def lock_items(self):
@@ -83,12 +88,14 @@ class StockEntry(Document):
 
 	def validate_chronology(self, timestamp):
 		if timestamp > now_datetime():
-			frappe.throw("Future stock postings are not allowed.")
+			frappe.throw(_("Future stock postings are not allowed."))
 		for item in sorted({row.item for row in self.items}):
 			history = self.get_item_history(item)
 			if history and timestamp < get_datetime(f"{history[-1].posting_date} {history[-1].posting_time}"):
 				frappe.throw(
-					f"Backdated stock postings are not allowed for item {item}. Use the latest posting time or later."
+					_(
+						"Backdated stock postings are not allowed for item {0}. Use the latest posting time or later."
+					).format(item)
 				)
 
 	def before_submit(self):
@@ -100,10 +107,14 @@ class StockEntry(Document):
 			history = self.get_item_history(row.item)
 			if any(not entry.valuation_method for entry in history):
 				frappe.throw(
-					f"Legacy stock history for item {row.item} needs a valuation audit. See the upgrade guide."
+					_(
+						"Legacy stock history for item {0} needs a valuation audit. See the upgrade guide."
+					).format(row.item)
 				)
 			if any(entry.valuation_method != method for entry in history):
-				frappe.throw(f"Cannot change valuation method for item {row.item} with stock history.")
+				frappe.throw(
+					_("Cannot change valuation method for item {0} with stock history.").format(row.item)
+				)
 			row.valuation_method_used = method
 			methods.add(method)
 		self.valuation_method_used = next(iter(methods)) if len(methods) == 1 else "Mixed (see items)"
@@ -169,9 +180,9 @@ class StockEntry(Document):
 
 	def post_movement(self, row, warehouse, qty, value, rate, reversal_of=None, timestamp=None):
 		balance_qty, balance_value = self.get_stock_balance(row.item, warehouse)
-		new_qty, new_value = balance_qty + flt(qty), balance_value + flt(value)
-		if new_qty < -0.000000001:
-			frappe.throw(f"Not enough stock for item {row.item} in warehouse {warehouse}.")
+		new_qty, new_value = flt(balance_qty + flt(qty), 9), balance_value + flt(value)
+		if new_qty < 0:
+			frappe.throw(_("Not enough stock for item {0} in warehouse {1}.").format(row.item, warehouse))
 		self.create_ledger_entry(
 			row.item,
 			warehouse,
@@ -255,15 +266,19 @@ class StockEntry(Document):
 				)
 			else:
 				remaining = -qty
-				while remaining > 0.000000001 and layers:
+				while flt(remaining, 9) > 0 and layers:
 					layer = layers[-1] if lifo else layers[0]
 					take = min(layer["quantity"], remaining)
 					layer["quantity"] -= take
 					remaining -= take
-					if layer["quantity"] <= 0.000000001:
+					if flt(layer["quantity"], 9) <= 0:
 						layers.pop(-1 if lifo else 0)
-				if remaining > 0.000000001:
-					frappe.throw(f"Stock ledger is inconsistent for item {item} in warehouse {warehouse}.")
+				if flt(remaining, 9) > 0:
+					frappe.throw(
+						_("Stock ledger is inconsistent for item {0} in warehouse {1}.").format(
+							item, warehouse
+						)
+					)
 		return layers
 
 	def calculate_receipt_valuation(self, row):
@@ -280,8 +295,10 @@ class StockEntry(Document):
 
 	def consume_valuation(self, row, method):
 		qty, value = self.get_stock_balance(row.item, row.source_warehouse)
-		if qty + 0.000000001 < row.quantity:
-			frappe.throw(f"Not enough stock for item {row.item} in warehouse {row.source_warehouse}.")
+		if flt(qty - row.quantity, 9) < 0:
+			frappe.throw(
+				_("Not enough stock for item {0} in warehouse {1}.").format(row.item, row.source_warehouse)
+			)
 		consumed = []
 		if method == "Moving Average":
 			issued = row.quantity * (value / qty)
@@ -293,10 +310,10 @@ class StockEntry(Document):
 				if take > 0:
 					consumed.append({**layer, "quantity": take, "value": take * layer["rate"]})
 					remaining -= take
-				if remaining <= 0.000000001:
+				if flt(remaining, 9) <= 0:
 					break
-			if remaining > 0.000000001:
-				frappe.throw(f"Stock ledger is inconsistent for item {row.item}.")
+			if flt(remaining, 9) > 0:
+				frappe.throw(_("Stock ledger is inconsistent for item {0}.").format(row.item))
 			issued = sum(layer["value"] for layer in consumed)
 		return {
 			"valuation_rate": issued / row.quantity,
@@ -331,10 +348,12 @@ class StockEntry(Document):
 			reversed_names = {e.reversal_of for e in history if e.reversal_of}
 			active = [e for e in history if not e.reversal_of and e.name not in reversed_names]
 			if not active or active[-1].stock_entry != self.name:
-				frappe.throw(f"Cancel later stock entries for item {item} first.")
+				frappe.throw(_("Cancel later stock entries for item {0} first.").format(item))
 			if any(not e.valuation_method for e in history):
 				frappe.throw(
-					f"Legacy stock history for item {item} needs a valuation audit. See the upgrade guide."
+					_(
+						"Legacy stock history for item {0} needs a valuation audit. See the upgrade guide."
+					).format(item)
 				)
 		self.validate_chronology(now_datetime())
 
@@ -348,7 +367,7 @@ class StockEntry(Document):
 			as_dict=True,
 		)
 		if not entries:
-			frappe.throw("Cannot cancel a stock entry without original ledger entries.")
+			frappe.throw(_("Cannot cancel a stock entry without original ledger entries."))
 		timestamp = now_datetime()
 		for entry in entries:
 			row = frappe._dict(item=entry.item, valuation_method_used=entry.valuation_method)
@@ -364,8 +383,8 @@ class StockEntry(Document):
 
 	def on_trash(self):
 		if frappe.db.exists("Stock Ledger Entry", {"stock_entry": self.name}):
-			frappe.throw("Stock entries with ledger history cannot be deleted.")
+			frappe.throw(_("Stock entries with ledger history cannot be deleted."))
 
 	def before_rename(self, old_name, new_name, merge=False):
 		if frappe.db.exists("Stock Ledger Entry", {"stock_entry": old_name}):
-			frappe.throw("Stock entries with ledger history cannot be renamed.")
+			frappe.throw(_("Stock entries with ledger history cannot be renamed."))

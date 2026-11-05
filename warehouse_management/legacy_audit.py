@@ -5,16 +5,17 @@ amounts, quantities, dates, or cancellation records are repaired by this helper.
 """
 
 import frappe
+from frappe import _
 
 from warehouse_management.warehouse_management.doctype.stock_entry.stock_entry import METHODS
 
 
 def confirm_valuation(item, method):
 	if method not in METHODS:
-		frappe.throw("Unsupported valuation method.")
+		frappe.throw(_("Unsupported valuation method."))
 	frappe.db.sql("SELECT name FROM `tabItem` WHERE name = %s FOR UPDATE", item)
 	if not frappe.db.exists("Item", item):
-		frappe.throw(f"Item {item} does not exist.")
+		frappe.throw(_("Item {0} does not exist.").format(item))
 	rows = frappe.db.sql(
 		"SELECT name, stock_entry, reversal_of, valuation_method FROM `tabStock Ledger Entry` WHERE item = %s FOR UPDATE",
 		item,
@@ -28,10 +29,10 @@ def confirm_valuation(item, method):
 			and row.name not in reversed_names
 		):
 			frappe.throw(
-				"Legacy cancellations need explicit reversal reconciliation before valuation attestation."
+				_("Legacy cancellations need explicit reversal reconciliation before valuation attestation.")
 			)
 	if any(row.valuation_method and row.valuation_method != method for row in rows):
-		frappe.throw("This method conflicts with an existing ledger method. Audit the history first.")
+		frappe.throw(_("This method conflicts with an existing ledger method. Audit the history first."))
 	frappe.db.sql(
 		"""UPDATE `tabStock Ledger Entry` SET valuation_method = %s
 		WHERE item = %s AND COALESCE(valuation_method, '') = ''""",

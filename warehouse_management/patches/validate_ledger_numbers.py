@@ -4,6 +4,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 import frappe
+from frappe import _
 
 
 def execute():
@@ -28,6 +29,7 @@ def execute():
 					raise InvalidOperation
 			except (InvalidOperation, ValueError):
 				frappe.throw(
-					f"Ledger {row.name}: {field} must be a finite number below 1e12 in magnitude with at most nine decimal places. "
-					"Audit and repair this legacy record before migrating; no value was guessed."
+					_(
+						"Ledger {0}: {1} must be a finite number below 1e12 in magnitude with at most nine decimal places. Audit and repair this legacy record before migrating; no value was guessed."
+					).format(row.name, field)
 				)

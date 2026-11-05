@@ -191,7 +191,8 @@ class TestInventorySafety(FrappeTestCase):
 			entry.posting_time = posting_time
 			entry.insert(ignore_permissions=True)
 			drafts.append(entry.name)
-		frappe.db.commit()  # Independent worker connections must see fixtures and draft names.
+		# Publish fixtures and draft names for independent connections.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		site, sites_path = frappe.local.site, frappe.local.sites_path
 		barrier = Barrier(2)
 
@@ -205,7 +206,8 @@ class TestInventorySafety(FrappeTestCase):
 				entry = frappe.get_doc("Stock Entry", name)
 				barrier.wait(timeout=30)
 				entry.submit()
-				frappe.db.commit()
+				# Release the item lock and make the winning withdrawal visible to its competitor.
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit
 				return "submitted"
 			except frappe.ValidationError as error:
 				frappe.db.rollback()
@@ -219,3 +221,9 @@ class TestInventorySafety(FrappeTestCase):
 		self.assertEqual(results.count("submitted"), 1)
 		self.assertTrue(any("Not enough stock" in result for result in results), results)
 		self.assertEqual(tuple(self.get_balance(self.shelf_a)), (3, 60))
+
+	def test_smallest_stored_quantity_cannot_be_overdrawn(self):
+		self.submit_entry("Receipt", 1, 20)
+		with self.assertRaises(frappe.ValidationError):
+			self.submit_entry("Consume", 1.000000001)
+		self.assertEqual(tuple(self.get_balance(self.shelf_a)), (1, 20))

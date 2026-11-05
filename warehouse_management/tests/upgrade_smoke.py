@@ -1,6 +1,7 @@
 """CI-only disposable-site migration checks. Never run prepare on a live site."""
 
 import frappe
+from frappe import _
 
 from warehouse_management.legacy_audit import confirm_valuation
 
@@ -10,7 +11,7 @@ WAREHOUSE = "Upgrade Smoke Warehouse"
 
 def prepare():
 	if frappe.local.site != "upgrade.localhost":
-		frappe.throw("This destructive fixture is restricted to the disposable upgrade.localhost site.")
+		frappe.throw(_("This destructive fixture is restricted to the disposable upgrade.localhost site."))
 	if not frappe.db.exists("UOM", "Piece"):
 		frappe.get_doc({"doctype": "UOM", "unit_name": "Piece"}).insert()
 	frappe.get_doc(
@@ -35,7 +36,8 @@ def prepare():
 	)
 	entry.insert()
 	entry.submit()
-	frappe.db.commit()
+	# Persist the disposable migration fixture across bench commands.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	# Simulate the legacy Data columns and missing method audit fields.
 	frappe.db.sql(
 		"ALTER TABLE `tabStock Ledger Entry` MODIFY qty_after_transaction VARCHAR(140), MODIFY stock_value_after_transaction VARCHAR(140)"
@@ -56,7 +58,8 @@ def prepare():
 		"warehouse_management.patches.secure_ledger",
 	):
 		frappe.db.delete("Patch Log", {"patch": patch})
-	frappe.db.commit()
+	# Persist the disposable migration fixture across bench commands.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 def verify():

@@ -38,7 +38,8 @@ class TestStockEntry(FrappeTestCase):
 			},
 		)
 
-		frappe.db.commit()
+		# Publish/reset master data and cleared ledger fixtures before independent test transactions.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	def get_item(self):
 		if not frappe.db.exists("UOM", "Piece"):
